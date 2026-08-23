@@ -1,0 +1,1118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="theme-color" content="#100E0C"/>
+<title>Call Sheet</title>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script type="text/babel">
+const { useState, useEffect, useMemo, useRef } = React;
+
+const CSS = `
+@import url("https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,700&family=DM+Mono:wght@300;400;500&display=swap");
+:root{
+  --ink:#100E0C; --ink-2:#17140F; --panel:#1D1913; --panel-2:#241F18;
+  --line:rgba(240,228,206,.12); --line-2:rgba(240,228,206,.22);
+  --cream:#F2EAD9; --cream-dim:rgba(242,234,217,.62); --cream-faint:rgba(242,234,217,.38);
+  --brass:#C9974A; --brass-lite:#E3B76F; --live:#D96A4A; --wrap:#7FA37C; --paid:#6E9BC4;
+  --pad:18px; --r:14px;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0;background:var(--ink);color:var(--cream)}
+body{font-family:"DM Sans",sans-serif;font-size:16px;line-height:1.45;-webkit-font-smoothing:antialiased;overscroll-behavior-y:none}
+body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;opacity:.5;
+  background:radial-gradient(120% 60% at 50% -10%, rgba(201,151,74,.16), transparent 60%),
+             radial-gradient(90% 50% at 100% 100%, rgba(217,106,74,.07), transparent 70%)}
+h1,h2,h3,.disp{font-family:"Cormorant Garamond",serif;font-weight:400;letter-spacing:.01em;margin:0}
+.mono{font-family:"DM Mono",monospace;font-variant-numeric:tabular-nums}
+.eyebrow{font-size:10px;letter-spacing:.26em;text-transform:uppercase;color:var(--cream-faint);font-weight:500}
+
+.app{position:relative;z-index:1;min-height:100dvh;padding-bottom:calc(96px + env(safe-area-inset-bottom))}
+.topbar{position:sticky;top:0;z-index:20;padding:calc(env(safe-area-inset-top) + 16px) var(--pad) 10px;
+  background:linear-gradient(to bottom,var(--ink) 62%,rgba(16,14,12,.88) 88%,transparent);backdrop-filter:blur(6px)}
+.topbar-row{display:flex;align-items:flex-end;justify-content:space-between;gap:12px}
+.mark{display:flex;align-items:baseline;gap:9px}
+.mark .dot{width:7px;height:7px;border-radius:50%;background:var(--brass);flex:none;transform:translateY(-3px)}
+.mark h1{font-size:30px;line-height:1}
+.mark h1 em{font-style:italic;color:var(--brass-lite)}
+.iconbtn{width:42px;height:42px;border-radius:50%;border:1px solid var(--line);background:var(--panel);
+  color:var(--cream-dim);display:grid;place-items:center;font-size:17px;flex:none;cursor:pointer}
+.iconbtn:active{background:var(--panel-2)}
+.owed{margin-top:10px;font-size:12px;color:var(--cream-dim);letter-spacing:.04em}
+.owed b{color:var(--brass-lite);font-weight:500;font-family:"DM Mono",monospace}
+
+.filters{display:flex;gap:7px;overflow-x:auto;padding:10px var(--pad) 0;scrollbar-width:none}
+.filters::-webkit-scrollbar{display:none}
+.filters.brands{padding-top:8px}
+.pill{flex:none;border:1px solid var(--line);background:transparent;color:var(--cream-dim);padding:8px 15px;
+  border-radius:100px;font-size:12.5px;letter-spacing:.06em;text-transform:uppercase;font-weight:500;cursor:pointer;white-space:nowrap}
+.pill.on{background:var(--cream);color:var(--ink);border-color:var(--cream)}
+.pill .n{opacity:.5;margin-left:6px}
+.pill.sm{padding:6px 13px;font-size:11px;letter-spacing:.1em}
+.pill.sm.on{background:var(--brass);color:#1a1206;border-color:var(--brass)}
+
+.list{padding:12px var(--pad) 0;display:flex;flex-direction:column;gap:12px}
+.daygroup{padding:20px 2px 2px;display:flex;align-items:center;gap:12px}
+.daygroup .rule{height:1px;background:var(--line);flex:1}
+
+.card{position:relative;border:1px solid var(--line);border-radius:var(--r);
+  background:linear-gradient(160deg,var(--panel) 0%,var(--ink-2) 100%);padding:16px 16px 14px;cursor:pointer;overflow:hidden;
+  animation:rise .4s cubic-bezier(.2,.7,.3,1) backwards}
+@keyframes rise{from{opacity:0;transform:translateY(8px)}}
+.card::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--brass);opacity:.85}
+.card.s-live::before{background:var(--live)}
+.card.s-wrapped::before{background:var(--wrap)}
+.card.s-invoiced::before{background:var(--cream-faint)}
+.card.s-paid::before{background:var(--paid)}
+.card:active{background:var(--panel-2)}
+.card-top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.client{font-size:22px;line-height:1.15}
+.card .loc{font-size:13px;color:var(--cream-dim);margin-top:3px}
+.amt{text-align:right;flex:none}
+.amt .v{font-family:"Cormorant Garamond",serif;font-size:23px;line-height:1;color:var(--brass-lite)}
+.amt .v.done{color:var(--paid)}
+.amt .k{font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--cream-faint);margin-top:5px}
+.card-bot{display:flex;align-items:center;gap:8px;margin-top:14px;padding-top:12px;border-top:1px solid var(--line);flex-wrap:wrap}
+.when{font-size:12.5px;color:var(--cream-dim);letter-spacing:.02em}
+.chip{font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;font-weight:700;padding:5px 9px;border-radius:4px;
+  border:1px solid var(--line-2);color:var(--cream-dim);flex:none}
+.chip.pushright{margin-left:auto}
+.chip.upcoming{color:var(--brass-lite);border-color:rgba(201,151,74,.4)}
+.chip.today{color:var(--ink);background:var(--brass-lite);border-color:var(--brass-lite)}
+.chip.live{color:#fff;background:var(--live);border-color:var(--live)}
+.chip.wrapped{color:var(--wrap);border-color:rgba(127,163,124,.45)}
+.chip.invoiced{color:var(--cream-faint)}
+.chip.paid{color:var(--paid);border-color:rgba(110,155,196,.5)}
+.chip.day{color:var(--brass-lite);border-color:rgba(201,151,74,.35);border-style:dashed}
+.chip.brand{color:var(--cream-faint);border-color:var(--line)}
+.chip.due{color:var(--brass-lite);border-color:rgba(201,151,74,.4)}
+.chip.overdue{color:#fff;background:var(--live);border-color:var(--live)}
+.chip.delivered{color:var(--wrap);border-color:rgba(127,163,124,.45)}
+.otflag{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--live);font-weight:700}
+
+.empty{text-align:center;padding:64px 30px;color:var(--cream-faint)}
+.empty .disp{font-size:26px;color:var(--cream-dim);margin-bottom:8px}
+.empty p{font-size:14px;margin:0}
+.warnbar{border:1px solid rgba(217,106,74,.45);border-radius:12px;padding:13px 15px;background:rgba(217,106,74,.09);
+  font-size:12.5px;line-height:1.5;color:var(--cream-dim)}
+.warnbar strong{color:var(--live);font-weight:700}
+
+.fab{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(20px + env(safe-area-inset-bottom));z-index:30;
+  background:var(--cream);color:var(--ink);border:none;border-radius:100px;padding:15px 28px;font-family:"DM Sans";
+  font-size:14px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;cursor:pointer;box-shadow:0 10px 34px rgba(0,0,0,.6)}
+.fab:active{transform:translateX(-50%) scale(.97)}
+
+.scrim{position:fixed;inset:0;background:rgba(8,7,6,.72);z-index:40;animation:fade .22s ease}
+@keyframes fade{from{opacity:0}}
+.sheet{position:fixed;left:0;right:0;bottom:0;z-index:41;max-height:94dvh;background:var(--ink-2);
+  border-top:1px solid var(--line-2);border-radius:22px 22px 0 0;display:flex;flex-direction:column;
+  animation:slide .3s cubic-bezier(.2,.75,.25,1)}
+@keyframes slide{from{transform:translateY(100%)}}
+.grab{width:38px;height:4px;border-radius:4px;background:var(--line-2);margin:10px auto 4px;flex:none}
+.sheet-head{padding:8px var(--pad) 12px;display:flex;align-items:center;gap:12px;flex:none;border-bottom:1px solid var(--line)}
+.sheet-head h2{font-size:26px;flex:1}
+.sheet-body{overflow-y:auto;-webkit-overflow-scrolling:touch;padding:18px var(--pad) calc(28px + env(safe-area-inset-bottom))}
+.sheet-foot{flex:none;padding:12px var(--pad) calc(14px + env(safe-area-inset-bottom));border-top:1px solid var(--line);
+  background:var(--ink-2);display:flex;gap:10px}
+
+label.f{display:block;margin-bottom:14px}
+label.f .lb{font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--cream-faint);font-weight:500;display:block;margin-bottom:7px}
+input,textarea,select{width:100%;font-family:"DM Sans",sans-serif;font-size:16px;color:var(--cream);background:var(--panel);
+  border:1px solid var(--line);border-radius:10px;padding:13px 14px;outline:none;appearance:none}
+input:focus,textarea:focus,select:focus{border-color:var(--brass);background:var(--panel-2)}
+input::placeholder,textarea::placeholder{color:rgba(242,234,217,.25)}
+textarea{min-height:74px;resize:vertical;line-height:1.5}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:11px}
+.seg{display:flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.seg button{flex:1;padding:13px 8px;background:var(--panel);border:none;color:var(--cream-dim);font-family:"DM Sans";
+  font-size:12px;letter-spacing:.1em;text-transform:uppercase;font-weight:500;cursor:pointer}
+.seg button.on{background:var(--cream);color:var(--ink);font-weight:700}
+.seg button+button{border-left:1px solid var(--line)}
+.seg.tri button{font-size:11px;padding:12px 4px;letter-spacing:.04em}
+.hint{font-size:11.5px;color:var(--cream-faint);margin-top:-6px;margin-bottom:14px;line-height:1.4}
+.sect{margin:26px 0 14px;display:flex;align-items:center;gap:12px}
+.sect .rule{height:1px;background:var(--line);flex:1}
+
+.btn{flex:1;padding:15px;border-radius:11px;border:1px solid var(--line-2);background:transparent;color:var(--cream);
+  font-family:"DM Sans";font-size:13px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;cursor:pointer}
+.btn:active{opacity:.7}
+.btn.primary{background:var(--cream);color:var(--ink);border-color:var(--cream)}
+.btn.brass{background:var(--brass);color:#1a1206;border-color:var(--brass)}
+.btn.live{background:var(--live);color:#fff;border-color:var(--live)}
+.btn.paid{background:var(--paid);color:#0d1720;border-color:var(--paid)}
+.btn.ghost{color:var(--cream-dim)}
+.btn.danger{color:var(--live);border-color:rgba(217,106,74,.4)}
+.btn.sm{padding:12px;font-size:11.5px}
+
+.dl{display:flex;justify-content:space-between;gap:16px;padding:12px 0;border-bottom:1px solid var(--line)}
+.dl dt{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--cream-faint);padding-top:3px;flex:none}
+.dl dd{margin:0;text-align:right;font-size:15px;line-height:1.4}
+.dl dd small{display:block;color:var(--cream-dim);font-size:12px;margin-top:2px}
+.statusband{border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:18px;
+  background:linear-gradient(160deg,var(--panel),var(--ink-2));display:flex;align-items:center;gap:12px}
+.statusband .disp{font-size:20px}
+.statusband small{display:block;color:var(--cream-dim);font-size:12px;margin-top:2px}
+.timeline{list-style:none;margin:0;padding:0}
+.timeline li{display:flex;gap:14px;padding:0 0 16px;position:relative}
+.timeline li::before{content:"";position:absolute;left:5px;top:14px;bottom:0;width:1px;background:var(--line)}
+.timeline li:last-child::before{display:none}
+.timeline .bead{width:11px;height:11px;border-radius:50%;border:1px solid var(--line-2);flex:none;margin-top:4px;background:var(--ink-2)}
+.timeline li.done .bead{background:var(--brass);border-color:var(--brass)}
+.timeline .t-lb{font-size:13.5px}
+.timeline .t-v{font-size:11.5px;color:var(--cream-dim);letter-spacing:.04em;margin-top:1px}
+.dayrow{display:flex;align-items:center;gap:10px;padding:11px 12px;border:1px solid var(--line);border-radius:10px;
+  margin-bottom:8px;background:var(--panel);cursor:pointer}
+.dayrow.here{border-color:var(--brass)}
+.dayrow .n{font-family:"Cormorant Garamond",serif;font-size:19px;color:var(--brass-lite);width:24px;flex:none}
+.dayrow .m{flex:1;min-width:0}
+.dayrow .m b{display:block;font-size:13.5px;font-weight:500}
+.dayrow .m span{font-size:11.5px;color:var(--cream-dim)}
+.methods{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}
+
+.inv-wrap{position:fixed;inset:0;z-index:60;background:#0B0A09;display:flex;flex-direction:column}
+.inv-bar{flex:none;display:flex;align-items:center;gap:10px;padding:calc(env(safe-area-inset-top) + 12px) var(--pad) 12px;
+  border-bottom:1px solid var(--line)}
+.inv-bar .eyebrow{flex:1}
+.inv-scroll{flex:1;overflow-y:auto;padding:18px 12px 20px}
+.inv-foot{flex:none;display:flex;gap:10px;padding:12px var(--pad) calc(14px + env(safe-area-inset-bottom));border-top:1px solid var(--line)}
+.paper{position:relative;background:#FBF6EC;color:#171310;border-radius:5px;padding:30px 24px 26px;
+  box-shadow:0 18px 50px rgba(0,0,0,.55);max-width:640px;margin:0 auto}
+.paper .stamp{position:absolute;top:22px;right:20px;transform:rotate(-11deg);border:2px solid #6E9BC4;color:#4C7CA6;
+  font-family:"DM Sans";font-size:13px;font-weight:700;letter-spacing:.24em;padding:5px 12px;border-radius:4px;opacity:.85}
+.paper .ph{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;padding-bottom:18px;border-bottom:1.5px solid #171310}
+.paper .biz{font-family:"Cormorant Garamond",serif;font-size:27px;line-height:1.05}
+.paper .biz-sub{font-size:10.5px;line-height:1.6;color:#5C5147;margin-top:7px;white-space:pre-line}
+.paper .inv-t{text-align:right;flex:none}
+.paper .inv-t .word{font-family:"Cormorant Garamond",serif;font-style:italic;font-size:25px;line-height:1}
+.paper .inv-t .no{font-family:"DM Mono",monospace;font-size:11px;letter-spacing:.06em;margin-top:6px;color:#5C5147}
+.paper .meta{display:grid;grid-template-columns:1fr 1fr;gap:18px;padding:18px 0;border-bottom:1px solid #DCD2C2}
+.paper .meta .k{font-size:8.5px;letter-spacing:.2em;text-transform:uppercase;color:#8A7C6D;font-weight:700;margin-bottom:5px}
+.paper .meta .v{font-size:13px;line-height:1.45}
+.paper .meta .v small{display:block;color:#5C5147;font-size:11px}
+.paper table{width:100%;border-collapse:collapse;margin-top:6px}
+.paper th{font-size:8.5px;letter-spacing:.2em;text-transform:uppercase;color:#8A7C6D;font-weight:700;text-align:left;
+  padding:14px 0 8px;border-bottom:1px solid #DCD2C2}
+.paper th.r,.paper td.r{text-align:right}
+.paper td{padding:12px 0;border-bottom:1px solid #EAE2D4;font-size:13px;vertical-align:top}
+.paper td .desc-sub{display:block;font-size:10.5px;color:#7A6D5F;margin-top:3px;line-height:1.4}
+.paper td.num{font-family:"DM Mono",monospace;font-size:12.5px;white-space:nowrap}
+.paper .totals{margin-top:16px;margin-left:auto;width:min(280px,100%)}
+.paper .tr{display:flex;justify-content:space-between;padding:6px 0;font-size:12.5px;color:#3E3630}
+.paper .tr.grand{border-top:1.5px solid #171310;margin-top:8px;padding-top:11px;font-family:"Cormorant Garamond",serif;
+  font-size:23px;color:#171310;align-items:baseline}
+.paper .tr .mono{font-family:"DM Mono",monospace}
+.paper .tr.grand .mono{font-family:"Cormorant Garamond",serif}
+.paper .note{margin-top:24px;padding-top:16px;border-top:1px solid #DCD2C2;font-size:11px;line-height:1.65;color:#5C5147;white-space:pre-line}
+.paper .sig{margin-top:20px;font-family:"Cormorant Garamond",serif;font-style:italic;font-size:16px;color:#3E3630}
+
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(96px + env(safe-area-inset-bottom));background:var(--cream);
+  color:var(--ink);padding:11px 20px;border-radius:100px;font-size:13px;font-weight:500;z-index:90;
+  box-shadow:0 8px 26px rgba(0,0,0,.5);animation:fade .2s ease}
+@media print{
+  body::before{display:none}
+  .app,.inv-bar,.inv-foot,.scrim,.sheet,.fab,.toast{display:none !important}
+  .inv-wrap{position:static;background:#fff}
+  .inv-scroll{overflow:visible;padding:0}
+  .paper{box-shadow:none;border-radius:0;padding:0;max-width:none}
+}
+`;
+
+const KEY = "callsheet:v1";
+const mem = {};
+function lsWorks(){ try{ localStorage.setItem("__t","1"); localStorage.removeItem("__t"); return true; }catch(e){ return false; } }
+const store = {
+  mode:(typeof window!=="undefined" && window.storage && window.storage.get) ? "claude" : (lsWorks() ? "local" : "memory"),
+  async get(k){
+    if(store.mode==="claude") return await window.storage.get(k);
+    if(store.mode==="local"){ const v=localStorage.getItem(k); return v===null?null:{value:v}; }
+    return mem[k] ? {value:mem[k]} : null;
+  },
+  async set(k,v){
+    if(store.mode==="claude") return await window.storage.set(k,v);
+    if(store.mode==="local"){ localStorage.setItem(k,v); return {value:v}; }
+    mem[k]=v; return {value:v};
+  }
+};
+
+/* ---------------- helpers ---------------- */
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
+const pad2 = n => String(n).padStart(2,"0");
+const iso = d => d.getFullYear()+"-"+pad2(d.getMonth()+1)+"-"+pad2(d.getDate());
+const todayISO = () => iso(new Date());
+
+function dt(dateStr,hm){
+  if(!dateStr||!hm) return null;
+  const [y,m,d]=dateStr.split("-").map(Number), [h,mi]=hm.split(":").map(Number);
+  return new Date(y,m-1,d,h,mi,0,0);
+}
+function endDT(s){
+  const a=dt(s.date,s.startTime), b=dt(s.date,s.endTime);
+  if(!a||!b) return b;
+  if(b<=a) b.setDate(b.getDate()+1);
+  return b;
+}
+const hoursBetween=(a,b)=>(!a||!b)?0:Math.max(0,(b-a)/3600000);
+const roundQ=h=>Math.round(h*4)/4;
+const ceilQ=h=>Math.ceil(h*4-0.001)/4;
+
+function fmtHM(hm){ if(!hm) return "—"; let [h,m]=hm.split(":").map(Number); const ap=h>=12?"pm":"am"; h=h%12||12; return h+":"+pad2(m)+ap; }
+function fmtDate(ds,opt){ const d=dt(ds,"12:00"); if(!d) return "—"; return d.toLocaleDateString(undefined,opt||{weekday:"short",month:"short",day:"numeric"}); }
+function fmtDateLong(ds){ return fmtDate(ds,{weekday:"long",month:"long",day:"numeric",year:"numeric"}); }
+function fmtStamp(i){ if(!i) return "—"; const d=new Date(i);
+  return d.toLocaleDateString(undefined,{month:"short",day:"numeric"})+" · "+d.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"}); }
+function fmtClock(i){ if(!i) return "—"; return new Date(i).toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"}); }
+const money=(n,c)=>(c||"$")+(Number(n)||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+const hoursLabel=h=>(Math.round(h*100)/100).toFixed(2).replace(/\.00$/,"")+" hr";
+const monthKey=ds=>{ const d=dt(ds,"12:00"); return d?d.getFullYear()+"-"+pad2(d.getMonth()+1):"x"; };
+const daysUntil=ds=>{ const d=dt(ds,"12:00"); if(!d) return null; const t=dt(todayISO(),"12:00"); return Math.round((d-t)/86400000); };
+
+/* ---------------- defaults ---------------- */
+const BRANDS = [
+  {id:"cix", name:"Content Hub", line:"Wedding films · Event production", contact:"", prefix:"CH-", next:1},
+  {id:"dp",  name:"Dream Productions", line:"Indian wedding media production", contact:"", prefix:"DP-", next:1},
+  {id:"rem", name:"Reel Estate Media", line:"Listing films · Agent branding", contact:"", prefix:"REM-", next:1}
+];
+const DEFAULT_SETTINGS = {
+  brands: BRANDS, defaultBrand:"cix",
+  currency:"$", taxLabel:"HST", taxRate:13, taxOn:true,
+  otMultiplier:1.5, otGrace:15, editLeadDays:21,
+  terms:"Payment due within 14 days of the shoot date.\nE-transfer accepted at the address above.",
+  signoff:"Thank you — it was a pleasure shooting with you."
+};
+function migrate(d){
+  const st = {...DEFAULT_SETTINGS, ...(d.settings||{})};
+  if(!Array.isArray(st.brands) || !st.brands.length){
+    const legacy = d.settings || {};
+    st.brands = BRANDS.map((b,i)=> i===0 ? {
+      ...b,
+      name: legacy.bizName || b.name,
+      line: legacy.bizLine || b.line,
+      contact: legacy.bizContact || "",
+      prefix: legacy.invPrefix || b.prefix,
+      next: Number(legacy.invNext)||1
+    } : b);
+  }
+  st.brands = st.brands.map(b => b.name==="Cloud IX"
+    ? {...b, name:"Content Hub", prefix: b.prefix==="CIX-" ? "CH-" : b.prefix}
+    : b);
+  return st;
+}
+
+const blankShoot = (brand,seed) => ({
+  id:uid(), groupId:null, project:"", client:"", contact:"", brand:brand||"cix",
+  locationName:"", address:"", date:todayISO(), startTime:"09:00", endTime:"17:00",
+  rateType:"flat", rate:"", otRate:"", deposit:"", notes:"",
+  actualStart:null, wrapTime:null, otBy:"", otAt:null,
+  editDue:"", deliveredAt:null,
+  invoiceNo:null, invoiceDate:null, paidAt:null, paidMethod:"",
+  createdAt:new Date().toISOString(), ...(seed||{})
+});
+
+/* ---------------- billing ---------------- */
+function bill(s,st){
+  const scheduled = roundQ(hoursBetween(dt(s.date,s.startTime), endDT(s)));
+  const rate = Number(s.rate)||0;
+  const wrap = s.wrapTime ? new Date(s.wrapTime) : null;
+  const sched = endDT(s);
+  let otHours = 0;
+  if(wrap && sched){
+    const raw = hoursBetween(sched,wrap);
+    if(raw*60 > (Number(st.otGrace)||0)) otHours = ceilQ(raw);
+  }
+  const base = s.rateType==="hourly" ? rate*scheduled : rate;
+  const otRate = Number(s.otRate) || (s.rateType==="hourly"
+      ? rate*(Number(st.otMultiplier)||1.5)
+      : (scheduled>0 ? (rate/scheduled)*(Number(st.otMultiplier)||1.5) : 0));
+  const ot = otHours*otRate;
+  const sub = base+ot;
+  const tax = st.taxOn ? sub*((Number(st.taxRate)||0)/100) : 0;
+  const total = sub+tax;
+  const dep = Number(s.deposit)||0;
+  return {scheduled, base, otHours, otRate, ot, sub, tax, total, deposit:dep, due:total-dep};
+}
+function billAll(list,st){
+  return list.reduce((a,s)=>{
+    const b = bill(s,st);
+    ["base","ot","sub","tax","total","deposit","due"].forEach(k=>a[k]+=b[k]);
+    return a;
+  },{base:0,ot:0,sub:0,tax:0,total:0,deposit:0,due:0});
+}
+
+/* ---------------- status ---------------- */
+function statusOf(s){
+  if(s.paidAt) return "paid";
+  if(s.invoiceNo) return "invoiced";
+  if(s.wrapTime) return "wrapped";
+  if(s.actualStart) return "live";
+  if(s.date===todayISO()) return "today";
+  const d = dt(s.date,"23:59");
+  if(d && d<new Date()) return "wrapped";
+  return "upcoming";
+}
+const STATUS_LB = {upcoming:"Upcoming", today:"Today", live:"On set", wrapped:"Wrapped", invoiced:"Invoiced", paid:"Paid"};
+function deliveryOf(s){
+  if(!s.wrapTime && statusOf(s)==="upcoming") return null;
+  if(s.deliveredAt) return {k:"delivered", lb:"Delivered"};
+  if(!s.editDue) return null;
+  const n = daysUntil(s.editDue);
+  if(n===null) return null;
+  if(n<0) return {k:"overdue", lb:"Edit "+Math.abs(n)+"d late"};
+  if(n===0) return {k:"due", lb:"Edit due today"};
+  return {k:"due", lb:"Edit in "+n+"d"};
+}
+
+/* ---------------- app ---------------- */
+function App(){
+  const [shoots,setShoots] = useState([]);
+  const [settings,setSettings] = useState(DEFAULT_SETTINGS);
+  const [loaded,setLoaded] = useState(false);
+  const [filter,setFilter] = useState("all");
+  const [brandF,setBrandF] = useState("all");
+  const [editing,setEditing] = useState(null);
+  const [detailId,setDetail] = useState(null);
+  const [invoiceNo,setInvoiceNo] = useState(null);
+  const [showSet,setShowSet] = useState(false);
+  const [toast,setToast] = useState("");
+  const first = useRef(true);
+
+  useEffect(()=>{ (async()=>{
+    try{
+      const r = await store.get(KEY);
+      if(r && r.value){
+        const d = JSON.parse(r.value);
+        if(Array.isArray(d.shoots)) setShoots(d.shoots.map(s=>({...blankShoot(), ...s})));
+        setSettings(migrate(d));
+      }
+    }catch(e){}
+    setLoaded(true);
+  })(); },[]);
+
+  useEffect(()=>{
+    if(!loaded) return;
+    if(first.current){ first.current=false; return; }
+    (async()=>{ try{ await store.set(KEY, JSON.stringify({shoots,settings})); }catch(e){ console.error(e); } })();
+  },[shoots,settings,loaded]);
+
+  const say = m => { setToast(m); setTimeout(()=>setToast(""),1900); };
+  const upsert = s => setShoots(p => p.some(x=>x.id===s.id) ? p.map(x=>x.id===s.id?s:x) : [...p,s]);
+  const patch = (id,f) => setShoots(p => p.map(x=>x.id===id?{...x,...f}:x));
+  const patchMany = (ids,f) => setShoots(p => p.map(x=>ids.includes(x.id)?{...x,...f}:x));
+  const remove = id => setShoots(p => p.filter(x=>x.id!==id));
+
+  const brandOf = id => settings.brands.find(b=>b.id===id) || settings.brands[0];
+
+  const sorted = useMemo(()=>[...shoots].sort((a,b)=>(a.date+a.startTime)<(b.date+b.startTime)?1:-1),[shoots]);
+
+  const groupMap = useMemo(()=>{
+    const m = {};
+    const groups = {};
+    shoots.forEach(s=>{ if(s.groupId){ (groups[s.groupId]=groups[s.groupId]||[]).push(s); } });
+    Object.values(groups).forEach(list=>{
+      list.sort((a,b)=>(a.date+a.startTime)<(b.date+b.startTime)?-1:1);
+      list.forEach((s,i)=>{ m[s.id]={n:i+1,total:list.length,ids:list.map(x=>x.id)}; });
+    });
+    return m;
+  },[shoots]);
+
+  const inBrand = s => brandF==="all" || s.brand===brandF;
+  const matches = (s,f) => {
+    const st = statusOf(s);
+    if(f==="all") return true;
+    if(f==="upcoming") return st==="upcoming"||st==="today";
+    if(f==="live") return st==="live";
+    if(f==="deliver") return !!s.wrapTime && !s.deliveredAt;
+    if(f==="owing") return !!s.invoiceNo && !s.paidAt;
+    if(f==="paid") return st==="paid";
+    return true;
+  };
+
+  const counts = useMemo(()=>{
+    const c={all:0,upcoming:0,live:0,deliver:0,owing:0,paid:0};
+    shoots.filter(inBrand).forEach(s=>{ Object.keys(c).forEach(k=>{ if(matches(s,k)) c[k]++; }); });
+    return c;
+  },[shoots,brandF]);
+
+  const outstanding = useMemo(()=>{
+    const list = shoots.filter(s=>inBrand(s) && s.invoiceNo && !s.paidAt);
+    const nos = new Set(list.map(s=>s.invoiceNo));
+    return {amt:billAll(list,settings).due, n:nos.size};
+  },[shoots,settings,brandF]);
+
+  const shown = sorted.filter(s=>inBrand(s) && matches(s,filter));
+  const detail = shoots.find(s=>s.id===detailId) || null;
+  const invoiceList = invoiceNo ? sorted.filter(s=>s.invoiceNo===invoiceNo).slice().reverse() : [];
+
+  function issueInvoice(list){
+    const existing = list.find(s=>s.invoiceNo);
+    if(existing){ setInvoiceNo(existing.invoiceNo); return; }
+    const b = brandOf(list[0].brand);
+    const no = b.prefix + String(Number(b.next)||1).padStart(4,"0");
+    patchMany(list.map(s=>s.id), {invoiceNo:no, invoiceDate:new Date().toISOString()});
+    setSettings(p=>({...p, brands:p.brands.map(x=>x.id===b.id?{...x, next:(Number(x.next)||1)+1}:x)}));
+    setInvoiceNo(no);
+  }
+  function markPaid(no,method){
+    const ids = shoots.filter(s=>s.invoiceNo===no).map(s=>s.id);
+    patchMany(ids,{paidAt:new Date().toISOString(), paidMethod:method});
+    say("Marked paid — "+method);
+  }
+
+  const FILTERS = [["all","All"],["upcoming","Upcoming"],["live","On set"],["deliver","To deliver"],["owing","Owing"],["paid","Paid"]];
+
+  return (
+    <div className="app">
+      <div className="topbar">
+        <div className="topbar-row">
+          <div className="mark"><span className="dot"></span><h1>Call <em>Sheet</em></h1></div>
+          <button className="iconbtn" onClick={()=>setShowSet(true)} aria-label="Settings">⚙</button>
+        </div>
+        {outstanding.amt>0.004 && (
+          <div className="owed">Outstanding <b>{money(outstanding.amt,settings.currency)}</b> across {outstanding.n} invoice{outstanding.n===1?"":"s"}</div>
+        )}
+      </div>
+
+      <div className="filters">
+        {FILTERS.map(([k,lb])=>(
+          <button key={k} className={"pill"+(filter===k?" on":"")} onClick={()=>setFilter(k)}>
+            {lb}<span className="n">{counts[k]}</span>
+          </button>
+        ))}
+      </div>
+
+      {settings.brands.length>1 && (
+        <div className="filters brands">
+          <button className={"pill sm"+(brandF==="all"?" on":"")} onClick={()=>setBrandF("all")}>All brands</button>
+          {settings.brands.map(b=>(
+            <button key={b.id} className={"pill sm"+(brandF===b.id?" on":"")} onClick={()=>setBrandF(b.id)}>{b.name}</button>
+          ))}
+        </div>
+      )}
+
+      <div className="list">
+        {store.mode==="memory" && (
+          <div className="warnbar"><strong>This browser isn't saving.</strong> Anything you add disappears when you close it — take a backup from Settings.</div>
+        )}
+        {shown.length===0 && (
+          <div className="empty">
+            <div className="disp">{shoots.length===0?"No shoots yet":"Nothing here"}</div>
+            <p>{shoots.length===0?"Add your first booking and the invoice writes itself.":"Try another filter."}</p>
+          </div>
+        )}
+        {shown.map((s,i)=>{
+          const prev = shown[i-1];
+          const head = !prev || monthKey(prev.date)!==monthKey(s.date);
+          return (
+            <React.Fragment key={s.id}>
+              {head && (
+                <div className="daygroup">
+                  <span className="eyebrow">{fmtDate(s.date,{month:"long",year:"numeric"})}</span>
+                  <span className="rule"></span>
+                </div>
+              )}
+              <Card s={s} st={settings} g={groupMap[s.id]} brand={brandOf(s.brand)}
+                    multi={settings.brands.length>1} onOpen={()=>setDetail(s.id)} i={i}/>
+            </React.Fragment>
+          );
+        })}
+      </div>
+
+      <button className="fab" onClick={()=>setEditing(blankShoot(brandF==="all"?settings.defaultBrand:brandF))}>+ New shoot</button>
+
+      {editing && (
+        <Editor shoot={editing} st={settings} onCancel={()=>setEditing(null)}
+          onSave={s=>{ upsert(s); setEditing(null); say("Shoot saved"); }}/>
+      )}
+
+      {detail && !editing && (
+        <Detail s={detail} st={settings} g={groupMap[detail.id]} brand={brandOf(detail.brand)}
+          days={detail.groupId ? sorted.filter(x=>x.groupId===detail.groupId).slice().reverse() : [detail]}
+          onClose={()=>setDetail(null)}
+          onEdit={()=>setEditing(detail)}
+          onPatch={f=>patch(detail.id,f)}
+          onDelete={()=>{ remove(detail.id); setDetail(null); say("Deleted"); }}
+          onInvoice={list=>issueInvoice(list)}
+          onPaid={m=>markPaid(detail.invoiceNo,m)}
+          onAddDay={()=>{
+            const gid = detail.groupId || uid();
+            if(!detail.groupId) patch(detail.id,{groupId:gid});
+            const d = dt(detail.date,"12:00"); d.setDate(d.getDate()+1);
+            const next = blankShoot(detail.brand,{
+              groupId:gid, project:detail.project, client:detail.client, contact:detail.contact,
+              locationName:detail.locationName, address:detail.address, date:iso(d),
+              startTime:detail.startTime, endTime:detail.endTime,
+              rateType:detail.rateType, rate:detail.rate, otRate:detail.otRate, notes:detail.notes,
+              editDue:detail.editDue
+            });
+            setDetail(null); setEditing(next); }}
+          say={say}/>
+      )}
+
+      {invoiceNo && invoiceList.length>0 && (
+        <Invoice list={invoiceList} st={settings} brand={brandOf(invoiceList[0].brand)}
+          onClose={()=>setInvoiceNo(null)} onPaid={m=>markPaid(invoiceNo,m)} say={say}/>
+      )}
+
+      {showSet && (
+        <Settings st={settings} shoots={shoots} onClose={()=>setShowSet(false)}
+          onSave={v=>{ setSettings(v); setShowSet(false); say("Settings saved"); }}
+          onRestore={d=>{ if(Array.isArray(d.shoots)) setShoots(d.shoots.map(s=>({...blankShoot(),...s})));
+                          setSettings(migrate(d)); setShowSet(false); say("Backup restored"); }}
+          say={say}/>
+      )}
+
+      {toast && <div className="toast">{toast}</div>}
+    </div>
+  );
+}
+
+/* ---------------- card ---------------- */
+function Card({s,st,g,brand,multi,onOpen,i}){
+  const status = statusOf(s);
+  const b = bill(s,st);
+  const dv = deliveryOf(s);
+  return (
+    <div className={"card s-"+status} onClick={onOpen} style={{animationDelay:Math.min(i,8)*40+"ms"}}>
+      <div className="card-top">
+        <div style={{minWidth:0}}>
+          <div className="client disp">{s.project || s.client || "Untitled shoot"}</div>
+          <div className="loc">{[s.project?s.client:"", s.locationName||s.address].filter(Boolean).join(" · ") || "No location set"}</div>
+        </div>
+        <div className="amt">
+          <div className={"v"+(s.paidAt?" done":"")}>{money(b.due,st.currency)}</div>
+          <div className="k">{s.paidAt ? "Paid" : (s.rateType==="hourly"?"Hourly":"Flat")}</div>
+        </div>
+      </div>
+      <div className="card-bot">
+        <span className="when mono">{fmtDate(s.date)} · {fmtHM(s.startTime)}–{s.wrapTime?fmtClock(s.wrapTime):fmtHM(s.endTime)}</span>
+        {b.otHours>0 && <span className="otflag">+{hoursLabel(b.otHours)} OT</span>}
+        <span className={"chip "+status+" pushright"}>{STATUS_LB[status]}</span>
+        {g && <span className="chip day">Day {g.n}/{g.total}</span>}
+        {dv && <span className={"chip "+dv.k}>{dv.lb}</span>}
+        {multi && <span className="chip brand">{brand.name}</span>}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- shell bits ---------------- */
+function Sheet({title,onClose,children,foot}){
+  return (
+    <>
+      <div className="scrim" onClick={onClose}></div>
+      <div className="sheet">
+        <div className="grab"></div>
+        <div className="sheet-head">
+          <h2 className="disp">{title}</h2>
+          <button className="iconbtn" onClick={onClose} aria-label="Close">✕</button>
+        </div>
+        <div className="sheet-body">{children}</div>
+        {foot && <div className="sheet-foot">{foot}</div>}
+      </div>
+    </>
+  );
+}
+const Field = ({label,hint,children}) => (
+  <>
+    <label className="f"><span className="lb">{label}</span>{children}</label>
+    {hint && <div className="hint">{hint}</div>}
+  </>
+);
+const Sect = ({children}) => (<div className="sect"><span className="eyebrow">{children}</span><span className="rule"></span></div>);
+
+/* ---------------- editor ---------------- */
+function Editor({shoot,st,onSave,onCancel}){
+  const [f,setF] = useState(shoot);
+  const set = (k,v)=>setF(p=>({...p,[k]:v}));
+  const b = bill(f,st);
+  return (
+    <Sheet title={shoot.client||shoot.project ? "Edit shoot" : "New shoot"} onClose={onCancel}
+      foot={<>
+        <button className="btn ghost" onClick={onCancel}>Cancel</button>
+        <button className="btn primary" onClick={()=>onSave(f)}>Save shoot</button>
+      </>}>
+      <Sect>The job</Sect>
+      {st.brands.length>1 && (
+        <>
+          <span className="lb" style={{fontSize:10,letterSpacing:".2em",textTransform:"uppercase",color:"var(--cream-faint)",display:"block",marginBottom:7}}>Brand</span>
+          <div className={"seg"+(st.brands.length>2?" tri":"")} style={{marginBottom:14}}>
+            {st.brands.map(br=>(
+              <button key={br.id} className={f.brand===br.id?"on":""} onClick={()=>set("brand",br.id)}>{br.name}</button>
+            ))}
+          </div>
+        </>
+      )}
+      <Field label="Project name" hint="What this shoot is called — appears as the title and on the invoice line.">
+        <input value={f.project} onChange={e=>set("project",e.target.value)}
+               placeholder="e.g. Sharma Reception — Teaser + Full Film" autoCapitalize="words"/>
+      </Field>
+      <Field label="Shooting for">
+        <input value={f.client} onChange={e=>set("client",e.target.value)} placeholder="Name or company" autoCapitalize="words"/>
+      </Field>
+      <Field label="Contact (optional)">
+        <input value={f.contact} onChange={e=>set("contact",e.target.value)} placeholder="Email or phone"/>
+      </Field>
+
+      <Sect>Location</Sect>
+      <Field label="Venue name">
+        <input value={f.locationName} onChange={e=>set("locationName",e.target.value)}
+               placeholder="e.g. Grand Empire Banquet Hall" autoCapitalize="words"/>
+      </Field>
+      <Field label="Address">
+        <textarea value={f.address} onChange={e=>set("address",e.target.value)} placeholder="Street, city, postal code"/>
+      </Field>
+
+      <Sect>Timing</Sect>
+      <Field label="Date"><input type="date" value={f.date} onChange={e=>set("date",e.target.value)}/></Field>
+      <div className="row2">
+        <label className="f"><span className="lb">Call time</span>
+          <input type="time" value={f.startTime} onChange={e=>set("startTime",e.target.value)}/></label>
+        <label className="f"><span className="lb">Scheduled wrap</span>
+          <input type="time" value={f.endTime} onChange={e=>set("endTime",e.target.value)}/></label>
+      </div>
+      <div className="hint">{hoursLabel(b.scheduled)} booked. Anything past scheduled wrap counts as overtime.</div>
+
+      <Sect>Rate</Sect>
+      <div className="seg" style={{marginBottom:14}}>
+        <button className={f.rateType==="flat"?"on":""} onClick={()=>set("rateType","flat")}>One-time fee</button>
+        <button className={f.rateType==="hourly"?"on":""} onClick={()=>set("rateType","hourly")}>Per hour</button>
+      </div>
+      <Field label={f.rateType==="hourly"?"Hourly rate":"Flat fee"}>
+        <input type="number" inputMode="decimal" value={f.rate} onChange={e=>set("rate",e.target.value)} placeholder="0.00"/>
+      </Field>
+      <Field label="Overtime rate / hr (optional)"
+             hint={"Leave blank to auto-use "+st.otMultiplier+"× your effective hourly rate — currently "+money(b.otRate,st.currency)+"/hr."}>
+        <input type="number" inputMode="decimal" value={f.otRate} onChange={e=>set("otRate",e.target.value)} placeholder="Auto"/>
+      </Field>
+      <Field label="Deposit already paid (optional)">
+        <input type="number" inputMode="decimal" value={f.deposit} onChange={e=>set("deposit",e.target.value)} placeholder="0.00"/>
+      </Field>
+
+      <Sect>Delivery</Sect>
+      <Field label="Edit due to client" hint="Keeps the job on your To deliver list until the film actually ships.">
+        <input type="date" value={f.editDue} onChange={e=>set("editDue",e.target.value)}/>
+      </Field>
+      <Field label="Notes for the invoice (optional)">
+        <textarea value={f.notes} onChange={e=>set("notes",e.target.value)} placeholder="Deliverables, coverage, special requests…"/>
+      </Field>
+
+      <div className="statusband" style={{marginTop:8}}>
+        <div style={{flex:1}}>
+          <span className="eyebrow">Projected total</span>
+          <div className="disp" style={{fontSize:26,marginTop:4}}>{money(b.due,st.currency)}</div>
+          <small>{money(b.base,st.currency)} base{st.taxOn?" + "+st.taxLabel:""}{b.deposit>0?" − deposit":""}</small>
+        </div>
+      </div>
+    </Sheet>
+  );
+}
+
+/* ---------------- detail ---------------- */
+const METHODS = ["e-Transfer","Cash","Card","Cheque"];
+
+function Detail({s,st,g,brand,days,onClose,onEdit,onPatch,onDelete,onInvoice,onPaid,onAddDay,say}){
+  const [otName,setOtName] = useState(s.otBy||"");
+  const [askOT,setAskOT] = useState(false);
+  const [askPay,setAskPay] = useState(false);
+  const [delArm,setDelArm] = useState(false);
+  const status = statusOf(s);
+  const b = bill(s,st);
+  const groupTotal = billAll(days,st);
+  const unbilled = days.filter(d=>!d.invoiceNo);
+
+  function start(){ onPatch({actualStart:new Date().toISOString()}); say("Rolling — call time logged"); }
+  function wrap(){
+    const now = new Date().toISOString();
+    onPatch({wrapTime:now, actualStart:s.actualStart||dt(s.date,s.startTime).toISOString()});
+    if(hoursBetween(endDT(s), new Date(now))*60 > (Number(st.otGrace)||0)) setAskOT(true);
+    else say("Wrapped");
+  }
+  function saveOT(){ onPatch({otBy:otName.trim(), otAt:new Date().toISOString()}); setAskOT(false); say("Overtime confirmed"); }
+
+  const foot = (
+    <>
+      {(status==="upcoming"||status==="today") && <button className="btn brass" onClick={start}>Start shoot</button>}
+      {status==="live" && <button className="btn live" onClick={wrap}>Wrap now</button>}
+      {s.invoiceNo && !s.paidAt && <button className="btn paid" onClick={()=>setAskPay(v=>!v)}>Mark paid</button>}
+      <button className="btn primary" onClick={()=>onInvoice([s])}>{s.invoiceNo?"View invoice":"Create invoice"}</button>
+    </>
+  );
+
+  return (
+    <Sheet title={s.project||s.client||"Untitled shoot"} onClose={onClose} foot={foot}>
+      <div className="statusband">
+        <div style={{flex:1}}>
+          <span className={"chip "+status} style={{display:"inline-block"}}>{STATUS_LB[status]}</span>
+          {st.brands.length>1 && <span className="chip brand" style={{marginLeft:6,display:"inline-block"}}>{brand.name}</span>}
+          <div className="disp" style={{marginTop:8}}>{money(b.due,st.currency)} {s.paidAt?"paid":"due"}</div>
+          <small>
+            {s.rateType==="hourly" ? money(s.rate,st.currency)+"/hr × "+hoursLabel(b.scheduled) : "Flat fee "+money(b.base,st.currency)}
+            {b.otHours>0 ? " · +"+hoursLabel(b.otHours)+" OT" : ""}
+            {s.paidAt ? " · "+s.paidMethod+" "+fmtStamp(s.paidAt) : ""}
+          </small>
+        </div>
+      </div>
+
+      {askPay && (
+        <div className="statusband" style={{borderColor:"rgba(110,155,196,.5)"}}>
+          <div style={{flex:1}}>
+            <span className="eyebrow" style={{color:"var(--paid)"}}>How were you paid?</span>
+            <div className="methods">
+              {METHODS.map(m=>(
+                <button key={m} className="pill sm" onClick={()=>{ onPaid(m); setAskPay(false); }}>{m}</button>
+              ))}
+            </div>
+            <div className="hint" style={{margin:"10px 0 0"}}>Marks every day on invoice {s.invoiceNo} as paid.</div>
+          </div>
+        </div>
+      )}
+
+      {askOT && (
+        <div className="statusband" style={{borderColor:"rgba(217,106,74,.45)"}}>
+          <div style={{flex:1}}>
+            <span className="eyebrow" style={{color:"var(--live)"}}>Overtime — {hoursLabel(b.otHours)}</span>
+            <div style={{fontSize:13.5,color:"var(--cream-dim)",margin:"6px 0 10px"}}>Who approved the extra time on site?</div>
+            <input value={otName} onChange={e=>setOtName(e.target.value)} placeholder="Name of who confirmed" autoCapitalize="words"/>
+            <div style={{display:"flex",gap:8,marginTop:10}}>
+              <button className="btn sm ghost" onClick={()=>setAskOT(false)}>Later</button>
+              <button className="btn sm primary" onClick={saveOT}>Confirm</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <Sect>Details</Sect>
+      <dl style={{margin:0}}>
+        <div className="dl"><dt>Client</dt><dd>{s.client||"—"}</dd></div>
+        <div className="dl"><dt>Location</dt><dd>{s.locationName||"—"}{s.address && <small>{s.address}</small>}</dd></div>
+        <div className="dl"><dt>Date</dt><dd>{fmtDateLong(s.date)}</dd></div>
+        <div className="dl"><dt>Scheduled</dt>
+          <dd className="mono">{fmtHM(s.startTime)} – {fmtHM(s.endTime)}<small>{hoursLabel(b.scheduled)} booked</small></dd></div>
+        {s.contact && <div className="dl"><dt>Contact</dt><dd>{s.contact}</dd></div>}
+        {s.notes && <div className="dl"><dt>Notes</dt><dd style={{fontSize:13.5,color:"var(--cream-dim)"}}>{s.notes}</dd></div>}
+      </dl>
+
+      <Sect>Event days</Sect>
+      {days.map((d,i)=>{
+        const dst = statusOf(d);
+        return (
+          <div key={d.id} className={"dayrow"+(d.id===s.id?" here":"")}>
+            <span className="n">{i+1}</span>
+            <div className="m">
+              <b>{fmtDate(d.date,{weekday:"long",month:"short",day:"numeric"})}</b>
+              <span>{fmtHM(d.startTime)}–{d.wrapTime?fmtClock(d.wrapTime):fmtHM(d.endTime)} · {money(bill(d,st).due,st.currency)}</span>
+            </div>
+            <span className={"chip "+dst}>{STATUS_LB[dst]}</span>
+          </div>
+        );
+      })}
+      <button className="btn sm ghost" style={{width:"100%",marginTop:4}} onClick={onAddDay}>+ Add another day</button>
+      {days.length>1 && unbilled.length>1 && (
+        <button className="btn sm brass" style={{width:"100%",marginTop:9}} onClick={()=>onInvoice(unbilled)}>
+          One invoice for all {unbilled.length} days · {money(billAll(unbilled,st).due,st.currency)}
+        </button>
+      )}
+
+      <Sect>Progress</Sect>
+      <ul className="timeline">
+        <li className="done"><span className="bead"></span>
+          <div><div className="t-lb">Booked</div><div className="t-v mono">{fmtStamp(s.createdAt)}</div></div></li>
+        <li className={s.actualStart?"done":""}><span className="bead"></span>
+          <div><div className="t-lb">Shoot started</div>
+            <div className="t-v mono">{s.actualStart?fmtStamp(s.actualStart):"Scheduled "+fmtHM(s.startTime)}</div></div></li>
+        <li className={s.wrapTime?"done":""}><span className="bead"></span>
+          <div><div className="t-lb">Wrapped</div>
+            <div className="t-v mono">{s.wrapTime?fmtStamp(s.wrapTime):"Scheduled "+fmtHM(s.endTime)}</div></div></li>
+        {b.otHours>0 && (
+          <li className={s.otBy?"done":""}><span className="bead"></span>
+            <div><div className="t-lb" style={{color:"var(--live)"}}>Overtime · {hoursLabel(b.otHours)} @ {money(b.otRate,st.currency)}/hr</div>
+              <div className="t-v mono">{s.otBy?"Confirmed by "+s.otBy+" · "+fmtStamp(s.otAt):"Not yet confirmed"}</div></div></li>
+        )}
+        <li className={s.invoiceNo?"done":""}><span className="bead"></span>
+          <div><div className="t-lb">Invoiced</div>
+            <div className="t-v mono">{s.invoiceNo?s.invoiceNo+" · "+fmtStamp(s.invoiceDate):"Not issued"}</div></div></li>
+        <li className={s.paidAt?"done":""}><span className="bead"></span>
+          <div><div className="t-lb">Paid</div>
+            <div className="t-v mono">{s.paidAt?s.paidMethod+" · "+fmtStamp(s.paidAt):"Outstanding"}</div></div></li>
+        <li className={s.deliveredAt?"done":""}><span className="bead"></span>
+          <div><div className="t-lb">Delivered</div>
+            <div className="t-v mono">{s.deliveredAt?fmtStamp(s.deliveredAt):(s.editDue?"Edit due "+fmtDate(s.editDue,{month:"short",day:"numeric"}):"No date set")}</div></div></li>
+      </ul>
+
+      {b.otHours>0 && !askOT && (
+        <button className="btn sm ghost" style={{width:"100%",marginTop:6}} onClick={()=>setAskOT(true)}>
+          {s.otBy?"Edit overtime approval":"Log who confirmed overtime"}
+        </button>
+      )}
+
+      <Sect>Delivery</Sect>
+      <Field label="Edit due to client">
+        <input type="date" value={s.editDue||""} onChange={e=>onPatch({editDue:e.target.value})}/>
+      </Field>
+      <button className="btn sm ghost" style={{width:"100%"}}
+        onClick={()=>{ onPatch({deliveredAt: s.deliveredAt?null:new Date().toISOString()}); say(s.deliveredAt?"Marked undelivered":"Delivered — nice"); }}>
+        {s.deliveredAt?"Undo delivered":"Mark delivered"}
+      </button>
+
+      <Sect>Manage</Sect>
+      <div style={{display:"flex",gap:9}}>
+        <button className="btn sm ghost" onClick={onEdit}>Edit</button>
+        {s.wrapTime && <button className="btn sm ghost" onClick={()=>onPatch({wrapTime:null,otBy:"",otAt:null})}>Un-wrap</button>}
+        {s.paidAt && <button className="btn sm ghost" onClick={()=>onPatch({paidAt:null,paidMethod:""})}>Unpay</button>}
+        <button className="btn sm danger" onClick={()=>{ if(delArm) onDelete(); else setDelArm(true); }}>
+          {delArm?"Tap again":"Delete"}
+        </button>
+      </div>
+      <div style={{height:8}}></div>
+    </Sheet>
+  );
+}
+
+/* ---------------- invoice ---------------- */
+function Invoice({list,st,brand,onClose,onPaid,say}){
+  const [askPay,setAskPay] = useState(false);
+  const head = list[0];
+  const b = billAll(list,st);
+  const no = head.invoiceNo || "DRAFT";
+  const issued = head.invoiceDate || new Date().toISOString();
+  const paid = list.every(s=>s.paidAt);
+
+  const lines = [];
+  list.forEach(s=>{
+    const sb = bill(s,st);
+    lines.push({
+      desc: s.project || (s.rateType==="hourly"?"Photo / video coverage":"Photo / video coverage — flat rate"),
+      sub: fmtDateLong(s.date)+" · "+fmtHM(s.startTime)+"–"+fmtHM(s.endTime)+(s.locationName?" · "+s.locationName:""),
+      qty: s.rateType==="hourly" ? hoursLabel(sb.scheduled) : "1",
+      rate: s.rateType==="hourly" ? money(s.rate,st.currency) : money(sb.base,st.currency),
+      amt: sb.base
+    });
+    if(sb.otHours>0) lines.push({
+      desc:"Overtime coverage — "+fmtDate(s.date,{month:"short",day:"numeric"}),
+      sub:"Wrapped "+fmtClock(s.wrapTime)+(s.otBy?" · approved on site by "+s.otBy:" · approval pending"),
+      qty:hoursLabel(sb.otHours), rate:money(sb.otRate,st.currency), amt:sb.ot
+    });
+  });
+
+  function plain(){
+    let t = brand.name+"\nINVOICE "+no+"\n\n";
+    t += "Billed to: "+(head.client||"—")+"\n";
+    if(head.project) t += "Project: "+head.project+"\n\n";
+    lines.forEach(l=>{ t += l.desc+" — "+l.qty+" @ "+l.rate+" = "+money(l.amt,st.currency)+"\n"; });
+    t += "\nSubtotal: "+money(b.sub,st.currency)+"\n";
+    if(st.taxOn) t += st.taxLabel+" ("+st.taxRate+"%): "+money(b.tax,st.currency)+"\n";
+    t += "Total: "+money(b.total,st.currency)+"\n";
+    if(b.deposit>0) t += "Deposit paid: −"+money(b.deposit,st.currency)+"\nBalance due: "+money(b.due,st.currency)+"\n";
+    return t;
+  }
+  async function share(){
+    const text = plain();
+    try{
+      if(navigator.share){ await navigator.share({title:"Invoice "+no, text}); return; }
+      await navigator.clipboard.writeText(text); say("Invoice copied");
+    }catch(e){ try{ await navigator.clipboard.writeText(text); say("Invoice copied"); }catch(_){ say("Couldn't share"); } }
+  }
+
+  const notes = Array.from(new Set(list.map(s=>s.notes).filter(Boolean)));
+
+  return (
+    <div className="inv-wrap">
+      <div className="inv-bar">
+        <button className="iconbtn" onClick={onClose} aria-label="Back">←</button>
+        <span className="eyebrow">Invoice {no}{list.length>1?" · "+list.length+" days":""}</span>
+        <button className="iconbtn" onClick={share} aria-label="Share">↗</button>
+      </div>
+
+      <div className="inv-scroll">
+        <div className="paper">
+          {paid && <div className="stamp">PAID</div>}
+          <div className="ph">
+            <div>
+              <div className="biz">{brand.name}</div>
+              <div className="biz-sub">{[brand.line,brand.contact].filter(Boolean).join("\n")}</div>
+            </div>
+            <div className="inv-t">
+              <div className="word">Invoice</div>
+              <div className="no">{no}</div>
+              <div className="no">{new Date(issued).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"})}</div>
+            </div>
+          </div>
+
+          <div className="meta">
+            <div>
+              <div className="k">Billed to</div>
+              <div className="v">{head.client||"—"}
+                {head.project && <small>{head.project}</small>}
+                {head.contact && <small>{head.contact}</small>}</div>
+            </div>
+            <div>
+              <div className="k">{list.length>1?"Event dates":"Shoot"}</div>
+              <div className="v">
+                {list.length>1
+                  ? fmtDate(list[0].date,{month:"short",day:"numeric"})+" – "+fmtDate(list[list.length-1].date,{month:"short",day:"numeric",year:"numeric"})
+                  : fmtDate(head.date,{month:"short",day:"numeric",year:"numeric"})}
+                <small>{list.length>1 ? list.length+" days of coverage"
+                  : fmtHM(head.startTime)+" – "+(head.wrapTime?fmtClock(head.wrapTime)+" (actual)":fmtHM(head.endTime)+" (scheduled)")}</small>
+              </div>
+            </div>
+            <div style={{gridColumn:"1 / -1"}}>
+              <div className="k">Location</div>
+              <div className="v">{head.locationName||"—"}{head.address && <small>{head.address}</small>}</div>
+            </div>
+          </div>
+
+          <table>
+            <thead><tr><th>Description</th><th className="r">Qty</th><th className="r">Rate</th><th className="r">Amount</th></tr></thead>
+            <tbody>
+              {lines.map((l,i)=>(
+                <tr key={i}>
+                  <td>{l.desc}<span className="desc-sub">{l.sub}</span></td>
+                  <td className="r num">{l.qty}</td>
+                  <td className="r num">{l.rate}</td>
+                  <td className="r num">{money(l.amt,st.currency)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          <div className="totals">
+            <div className="tr"><span>Subtotal</span><span className="mono">{money(b.sub,st.currency)}</span></div>
+            {st.taxOn && <div className="tr"><span>{st.taxLabel} ({st.taxRate}%)</span><span className="mono">{money(b.tax,st.currency)}</span></div>}
+            {b.deposit>0 && <div className="tr"><span>Deposit paid</span><span className="mono">−{money(b.deposit,st.currency)}</span></div>}
+            <div className="tr grand"><span>{paid?"Paid in full":(b.deposit>0?"Balance due":"Total due")}</span>
+              <span className="mono">{money(b.due,st.currency)}</span></div>
+          </div>
+
+          {(notes.length>0 || st.terms) && <div className="note">{[...notes, st.terms].filter(Boolean).join("\n\n")}</div>}
+          {st.signoff && <div className="sig">{st.signoff}</div>}
+        </div>
+
+        {askPay && (
+          <div className="paper" style={{marginTop:14,background:"var(--panel)",color:"var(--cream)",boxShadow:"none",padding:"16px 18px"}}>
+            <span className="eyebrow" style={{color:"var(--paid)"}}>How were you paid?</span>
+            <div className="methods">
+              {METHODS.map(m=>(<button key={m} className="pill sm" onClick={()=>{ onPaid(m); setAskPay(false); }}>{m}</button>))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="inv-foot">
+        {!paid && <button className="btn paid" onClick={()=>setAskPay(v=>!v)}>Mark paid</button>}
+        <button className="btn ghost" onClick={share}>Share</button>
+        <button className="btn primary" onClick={()=>window.print()}>PDF</button>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- settings ---------------- */
+function Settings({st,shoots,onClose,onSave,onRestore,say}){
+  const [f,setF] = useState(st);
+  const [bid,setBid] = useState(st.defaultBrand || st.brands[0].id);
+  const [paste,setPaste] = useState("");
+  const [showPaste,setShowPaste] = useState(false);
+  const set = (k,v)=>setF(p=>({...p,[k]:v}));
+  const brand = f.brands.find(b=>b.id===bid) || f.brands[0];
+  const setB = (k,v)=>setF(p=>({...p, brands:p.brands.map(b=>b.id===bid?{...b,[k]:v}:b)}));
+
+  async function backup(){
+    const text = JSON.stringify({shoots, settings:f});
+    try{
+      if(navigator.share){ await navigator.share({title:"Call Sheet backup", text}); return; }
+      await navigator.clipboard.writeText(text); say("Backup copied");
+    }catch(e){ try{ await navigator.clipboard.writeText(text); say("Backup copied"); }catch(_){ say("Couldn't copy"); } }
+  }
+  function restore(){
+    if(!showPaste || !paste.trim()){ setShowPaste(true); return; }
+    try{ onRestore(JSON.parse(paste)); }catch(e){ say("That wasn't a valid backup"); }
+  }
+
+  return (
+    <Sheet title="Settings" onClose={onClose}
+      foot={<>
+        <button className="btn ghost" onClick={onClose}>Cancel</button>
+        <button className="btn primary" onClick={()=>onSave(f)}>Save</button>
+      </>}>
+      <Sect>Brands</Sect>
+      <div className={"seg"+(f.brands.length>2?" tri":"")} style={{marginBottom:14}}>
+        {f.brands.map(b=>(<button key={b.id} className={bid===b.id?"on":""} onClick={()=>setBid(b.id)}>{b.name}</button>))}
+      </div>
+      <Field label="Business name"><input value={brand.name} onChange={e=>setB("name",e.target.value)}/></Field>
+      <Field label="Tagline"><input value={brand.line} onChange={e=>setB("line",e.target.value)}/></Field>
+      <Field label="Contact block on invoice">
+        <textarea value={brand.contact} onChange={e=>setB("contact",e.target.value)}
+          placeholder={"email@domain.com\n(555) 123-4567\nToronto, ON"}/>
+      </Field>
+      <div className="row2">
+        <label className="f"><span className="lb">Number prefix</span>
+          <input value={brand.prefix} onChange={e=>setB("prefix",e.target.value)}/></label>
+        <label className="f"><span className="lb">Next number</span>
+          <input type="number" inputMode="numeric" value={brand.next} onChange={e=>setB("next",e.target.value)}/></label>
+      </div>
+      <Field label="Default brand for new shoots">
+        <div className={"seg"+(f.brands.length>2?" tri":"")}>
+          {f.brands.map(b=>(<button key={b.id} className={f.defaultBrand===b.id?"on":""} onClick={()=>set("defaultBrand",b.id)}>{b.name}</button>))}
+        </div>
+      </Field>
+
+      <Sect>Money</Sect>
+      <Field label="Currency symbol"><input value={f.currency} onChange={e=>set("currency",e.target.value)} placeholder="$"/></Field>
+      <div className="seg" style={{marginBottom:14}}>
+        <button className={f.taxOn?"on":""} onClick={()=>set("taxOn",true)}>Charge tax</button>
+        <button className={!f.taxOn?"on":""} onClick={()=>set("taxOn",false)}>No tax</button>
+      </div>
+      {f.taxOn && (
+        <div className="row2">
+          <label className="f"><span className="lb">Tax label</span>
+            <input value={f.taxLabel} onChange={e=>set("taxLabel",e.target.value)}/></label>
+          <label className="f"><span className="lb">Rate %</span>
+            <input type="number" inputMode="decimal" value={f.taxRate} onChange={e=>set("taxRate",e.target.value)}/></label>
+        </div>
+      )}
+
+      <Sect>Overtime</Sect>
+      <div className="row2">
+        <label className="f"><span className="lb">Default multiplier</span>
+          <input type="number" inputMode="decimal" step="0.25" value={f.otMultiplier} onChange={e=>set("otMultiplier",e.target.value)}/></label>
+        <label className="f"><span className="lb">Grace (min)</span>
+          <input type="number" inputMode="numeric" value={f.otGrace} onChange={e=>set("otGrace",e.target.value)}/></label>
+      </div>
+      <div className="hint">Overtime starts once you run past scheduled wrap by more than the grace window, billed in 15-minute blocks.</div>
+
+      <Sect>Invoice footer</Sect>
+      <Field label="Payment terms"><textarea value={f.terms} onChange={e=>set("terms",e.target.value)}/></Field>
+      <Field label="Sign-off line"><input value={f.signoff} onChange={e=>set("signoff",e.target.value)}/></Field>
+
+      <Sect>Backup</Sect>
+      <div style={{display:"flex",gap:9}}>
+        <button className="btn sm ghost" onClick={backup}>Copy / share backup</button>
+        <button className="btn sm ghost" onClick={restore}>{showPaste?"Restore now":"Restore"}</button>
+      </div>
+      {showPaste && (
+        <textarea style={{marginTop:10}} value={paste} onChange={e=>setPaste(e.target.value)}
+          placeholder="Paste your backup here, then tap Restore now"/>
+      )}
+      <div className="hint" style={{marginTop:10}}>
+        {shoots.length} shoot{shoots.length===1?"":"s"} saved.
+      </div>
+      <div style={{height:6}}></div>
+    </Sheet>
+  );
+}
+
+function CallSheet(){
+  return (<><style>{CSS}</style><App/></>);
+}
+ReactDOM.createRoot(document.getElementById("root")).render(<CallSheet/>);
+
+</script>
+</body>
+</html>
