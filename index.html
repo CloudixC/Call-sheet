@@ -98,6 +98,32 @@ h1,h2,h3,.disp{font-family:"Cormorant Garamond",serif;font-weight:400;letter-spa
 .chip.delivered{color:var(--wrap);border-color:rgba(127,163,124,.45)}
 .otflag{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--live);font-weight:700}
 
+.livebar{margin:12px var(--pad) 0;border:1px solid rgba(217,106,74,.45);border-radius:14px;padding:14px 16px;
+  background:linear-gradient(160deg,rgba(217,106,74,.15),var(--ink-2));display:flex;align-items:center;gap:13px;cursor:pointer}
+.livebar.soon{border-color:rgba(201,151,74,.4);background:linear-gradient(160deg,rgba(201,151,74,.12),var(--ink-2))}
+.livebar .m{flex:1;min-width:0}
+.livebar .t{font-family:"Cormorant Garamond",serif;font-size:27px;line-height:1}
+.livebar .s{font-size:12px;color:var(--cream-dim);margin-top:4px}
+.livebar .s b{color:var(--live);font-weight:700}
+.livebar.soon .s b{color:var(--brass-lite)}
+.livebar .go{flex:none;padding:12px 17px;border-radius:100px;border:none;background:var(--live);color:#fff;
+  font-family:"DM Sans";font-size:11.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;cursor:pointer}
+.livebar.soon .go{background:var(--brass);color:#1a1206}
+.pulse{width:8px;height:8px;border-radius:50%;background:var(--live);flex:none;animation:pulse 1.6s infinite}
+.livebar.soon .pulse{background:var(--brass)}
+@keyframes pulse{50%{opacity:.2}}
+.shotrow{display:flex;align-items:center;gap:11px;padding:11px 12px;border:1px solid var(--line);border-radius:10px;
+  margin-bottom:7px;background:var(--panel);cursor:pointer}
+.shotrow.on{border-color:rgba(127,163,124,.5)}
+.shotrow .box{width:19px;height:19px;border-radius:5px;border:1px solid var(--line-2);flex:none;display:grid;
+  place-items:center;font-size:12px;color:#12190f;font-weight:700}
+.shotrow.on .box{background:var(--wrap);border-color:var(--wrap)}
+.shotrow .lb{flex:1;font-size:14px}
+.shotrow.on .lb{color:var(--cream-dim);text-decoration:line-through}
+.acts{display:flex;gap:8px;margin-bottom:18px}
+.acts button{flex:1;padding:12px 6px;border-radius:11px;border:1px solid var(--line);background:var(--panel);
+  color:var(--cream-dim);font-family:"DM Sans";font-size:11px;letter-spacing:.06em;text-transform:uppercase;font-weight:600;cursor:pointer}
+.acts button:active{background:var(--panel-2)}
 .empty{text-align:center;padding:64px 30px;color:var(--cream-faint)}
 .empty .disp{font-size:26px;color:var(--cream-dim);margin-bottom:8px}
 .empty p{font-size:14px;margin:0}
@@ -268,10 +294,44 @@ function fmtDate(ds,opt){ const d=dt(ds,"12:00"); if(!d) return "—"; return d.
 function fmtDateLong(ds){ return fmtDate(ds,{weekday:"long",month:"long",day:"numeric",year:"numeric"}); }
 function fmtStamp(i){ if(!i) return "—"; const d=new Date(i);
   return d.toLocaleDateString(undefined,{month:"short",day:"numeric"})+" · "+d.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"}); }
+function hmOf(i){ if(!i) return ""; const d=new Date(i); return pad2(d.getHours())+":"+pad2(d.getMinutes()); }
 function fmtClock(i){ if(!i) return "—"; return new Date(i).toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"}); }
 const money=(n,c)=>(c||"$")+(Number(n)||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
 const hoursLabel=h=>(Math.round(h*100)/100).toFixed(2).replace(/\.00$/,"")+" hr";
 const monthKey=ds=>{ const d=dt(ds,"12:00"); return d?d.getFullYear()+"-"+pad2(d.getMonth()+1):"x"; };
+function dur(ms){
+  const m = Math.max(0,Math.floor(ms/60000));
+  return (m>=60 ? Math.floor(m/60)+"h " : "") + (m%60) + "m";
+}
+function mapsHref(addr){
+  const q = encodeURIComponent(addr);
+  const apple = typeof navigator!=="undefined" && /iPhone|iPad|iPod|Macintosh/.test(navigator.userAgent);
+  return apple ? "https://maps.apple.com/?q="+q : "https://www.google.com/maps/search/?api=1&query="+q;
+}
+function contactHref(c){
+  if(!c) return null;
+  if(c.includes("@")) return "mailto:"+c.trim();
+  const digits = c.replace(/[^0-9+]/g,"");
+  return digits.length>=7 ? "tel:"+digits : null;
+}
+function icsFor(s,brand){
+  const st = dt(s.date,s.startTime), en = endDT(s);
+  const z = d => d.getFullYear()+pad2(d.getMonth()+1)+pad2(d.getDate())+"T"+pad2(d.getHours())+pad2(d.getMinutes())+"00";
+  const title = [s.project,s.dayName].filter(Boolean).join(" — ") || s.client || "Shoot";
+  const esc = t => String(t||"").replace(/[,;]/g,"\\$&").replace(/\n/g,"\\n");
+  return ["BEGIN:VCALENDAR","VERSION:2.0","PRODID:-//Call Sheet//EN","BEGIN:VEVENT",
+    "UID:"+s.id+"@callsheet","DTSTART:"+z(st),"DTEND:"+z(en),
+    "SUMMARY:"+esc(title+" · "+brand.name),
+    "LOCATION:"+esc([s.locationName,s.address].filter(Boolean).join(", ")),
+    "DESCRIPTION:"+esc("Client: "+(s.client||"—")+(s.notes?"\n"+s.notes:"")),
+    "BEGIN:VALARM","TRIGGER:-PT90M","ACTION:DISPLAY","DESCRIPTION:Call time soon","END:VALARM",
+    "END:VEVENT","END:VCALENDAR"].join("\r\n");
+}
+function addHours(hm,h){
+  const [H,M]=hm.split(":").map(Number);
+  const t=((H*60+M+Math.round(h*60))%1440+1440)%1440;
+  return pad2(Math.floor(t/60))+":"+pad2(t%60);
+}
 const daysUntil=ds=>{ const d=dt(ds,"12:00"); if(!d) return null; const t=dt(todayISO(),"12:00"); return Math.round((d-t)/86400000); };
 
 /* ---------------- defaults ---------------- */
@@ -283,7 +343,7 @@ const BRANDS = [
 const DEFAULT_SETTINGS = {
   brands: BRANDS, defaultBrand:"cix",
   currency:"$", taxLabel:"HST", taxRate:13, taxOn:true,
-  otMultiplier:1.5, otGrace:15, editLeadDays:21,
+  otMultiplier:1.5, otGrace:15, editLeadDays:21, clients:[], packages:[],
   terms:"Payment due within 14 days of the shoot date.\nE-transfer accepted at the address above.",
   signoff:"Thank you — it was a pleasure shooting with you."
 };
@@ -300,6 +360,8 @@ function migrate(d){
       next: Number(legacy.invNext)||1
     } : b);
   }
+  if(!Array.isArray(st.clients)) st.clients=[];
+  if(!Array.isArray(st.packages)) st.packages=[];
   st.brands = st.brands.map(b => b.name==="Cloud IX"
     ? {...b, name:"Content Hub", prefix: b.prefix==="CIX-" ? "CH-" : b.prefix}
     : b);
@@ -307,11 +369,11 @@ function migrate(d){
 }
 
 const blankShoot = (brand,seed) => ({
-  id:uid(), groupId:null, project:"", client:"", contact:"", brand:brand||"cix",
+  id:uid(), groupId:null, project:"", dayName:"", client:"", contact:"", brand:brand||"cix",
   locationName:"", address:"", date:todayISO(), startTime:"09:00", endTime:"17:00",
   rateType:"flat", rate:"", otRate:"", deposit:"", notes:"",
   actualStart:null, wrapTime:null, otBy:"", otAt:null,
-  editDue:"", deliveredAt:null,
+  editDue:"", deliveredAt:null, expenses:[], crew:[], shots:[],
   invoiceNo:null, invoiceDate:null, paidAt:null, paidMethod:"",
   createdAt:new Date().toISOString(), ...(seed||{})
 });
@@ -332,18 +394,25 @@ function bill(s,st){
       ? rate*(Number(st.otMultiplier)||1.5)
       : (scheduled>0 ? (rate/scheduled)*(Number(st.otMultiplier)||1.5) : 0));
   const ot = otHours*otRate;
-  const sub = base+ot;
+  const exp = Array.isArray(s.expenses) ? s.expenses : [];
+  const expTotal = exp.reduce((a,e)=>a+(Number(e.amount)||0),0);
+  const expBillable = exp.filter(e=>e.billable).reduce((a,e)=>a+(Number(e.amount)||0),0);
+  const sub = base+ot+expBillable;
   const tax = st.taxOn ? sub*((Number(st.taxRate)||0)/100) : 0;
   const total = sub+tax;
   const dep = Number(s.deposit)||0;
-  return {scheduled, base, otHours, otRate, ot, sub, tax, total, deposit:dep, due:total-dep};
+  const crew = Array.isArray(s.crew)?s.crew:[];
+  const crewCost = crew.reduce((a,c)=>a+(Number(c.fee)||0),0);
+  const profit = base+ot+expBillable-expTotal-crewCost;
+  return {scheduled, base, otHours, otRate, ot, expTotal, expBillable, crewCost, sub, tax, total,
+          deposit:dep, due:total-dep, profit};
 }
 function billAll(list,st){
   return list.reduce((a,s)=>{
     const b = bill(s,st);
-    ["base","ot","sub","tax","total","deposit","due"].forEach(k=>a[k]+=b[k]);
+    ["base","ot","expTotal","expBillable","crewCost","sub","tax","total","deposit","due","profit"].forEach(k=>a[k]+=b[k]);
     return a;
-  },{base:0,ot:0,sub:0,tax:0,total:0,deposit:0,due:0});
+  },{base:0,ot:0,expTotal:0,expBillable:0,crewCost:0,sub:0,tax:0,total:0,deposit:0,due:0,profit:0});
 }
 
 /* ---------------- status ---------------- */
@@ -381,6 +450,7 @@ function App(){
   const [invoiceNo,setInvoiceNo] = useState(null);
   const [showSet,setShowSet] = useState(false);
   const [toast,setToast] = useState("");
+  const [now,setNow] = useState(Date.now());
   const first = useRef(true);
 
   useEffect(()=>{ (async()=>{
@@ -446,6 +516,18 @@ function App(){
     return {amt:billAll(list,settings).due, n:nos.size};
   },[shoots,settings,brandF]);
 
+  const liveShoot = useMemo(()=>shoots.find(s=>s.actualStart && !s.wrapTime) || null,[shoots]);
+  const nextToday = useMemo(()=>shoots
+    .filter(s=>s.date===todayISO() && !s.actualStart && !s.wrapTime)
+    .sort((a,b)=>a.startTime<b.startTime?-1:1)[0] || null,[shoots]);
+  const ticker = liveShoot ? liveShoot.id : (nextToday ? nextToday.id : "");
+  useEffect(()=>{
+    if(!ticker) return;
+    const t = setInterval(()=>setNow(Date.now()), 20000);
+    setNow(Date.now());
+    return ()=>clearInterval(t);
+  },[ticker]);
+
   const shown = sorted.filter(s=>inBrand(s) && matches(s,filter));
   const detail = shoots.find(s=>s.id===detailId) || null;
   const invoiceList = invoiceNo ? sorted.filter(s=>s.invoiceNo===invoiceNo).slice().reverse() : [];
@@ -458,6 +540,15 @@ function App(){
     patchMany(list.map(s=>s.id), {invoiceNo:no, invoiceDate:new Date().toISOString()});
     setSettings(p=>({...p, brands:p.brands.map(x=>x.id===b.id?{...x, next:(Number(x.next)||1)+1}:x)}));
     setInvoiceNo(no);
+  }
+  function savePreset(kind,obj){
+    setSettings(p=>{
+      const list = p[kind]||[];
+      const i = list.findIndex(x=>x.name.toLowerCase()===obj.name.toLowerCase());
+      const next = i>=0 ? list.map((x,j)=>j===i?{...x,...obj,id:x.id}:x) : [...list,{...obj,id:uid()}];
+      return {...p,[kind]:next};
+    });
+    say(kind==="clients" ? "Client saved" : "Package saved");
   }
   function markPaid(no,method){
     const ids = shoots.filter(s=>s.invoiceNo===no).map(s=>s.id);
@@ -478,6 +569,13 @@ function App(){
           <div className="owed">Outstanding <b>{money(outstanding.amt,settings.currency)}</b> across {outstanding.n} invoice{outstanding.n===1?"":"s"}</div>
         )}
       </div>
+
+      {(liveShoot || nextToday) && (
+        <LiveBar s={liveShoot||nextToday} live={!!liveShoot} st={settings} now={now}
+          onOpen={()=>setDetail((liveShoot||nextToday).id)}
+          onStart={()=>{ patch(nextToday.id,{actualStart:new Date().toISOString()}); say("Rolling"); }}
+          onWrap={()=>{ patch(liveShoot.id,{wrapTime:new Date().toISOString()}); setDetail(liveShoot.id); }}/>
+      )}
 
       <div className="filters">
         {FILTERS.map(([k,lb])=>(
@@ -528,6 +626,7 @@ function App(){
 
       {editing && (
         <Editor shoot={editing} st={settings} onCancel={()=>setEditing(null)}
+          onSaveClient={c=>savePreset("clients",c)} onSavePackage={pk=>savePreset("packages",pk)}
           onSave={s=>{ upsert(s); setEditing(null); say("Shoot saved"); }}/>
       )}
 
@@ -545,7 +644,7 @@ function App(){
             if(!detail.groupId) patch(detail.id,{groupId:gid});
             const d = dt(detail.date,"12:00"); d.setDate(d.getDate()+1);
             const next = blankShoot(detail.brand,{
-              groupId:gid, project:detail.project, client:detail.client, contact:detail.contact,
+              groupId:gid, project:detail.project, dayName:"", client:detail.client, contact:detail.contact,
               locationName:detail.locationName, address:detail.address, date:iso(d),
               startTime:detail.startTime, endTime:detail.endTime,
               rateType:detail.rateType, rate:detail.rate, otRate:detail.otRate, notes:detail.notes,
@@ -573,6 +672,49 @@ function App(){
   );
 }
 
+/* ---------------- live on-set bar ---------------- */
+function LiveBar({s,live,st,now,onOpen,onStart,onWrap}){
+  const b = bill(s,st);
+  const startRef = s.actualStart ? new Date(s.actualStart) : dt(s.date,s.startTime);
+  const sched = endDT(s);
+  const title = s.dayName || s.project || s.client || "Shoot";
+
+  if(!live){
+    const mins = Math.round((dt(s.date,s.startTime) - now)/60000);
+    return (
+      <div className="livebar soon" onClick={onOpen}>
+        <span className="pulse"></span>
+        <div className="m">
+          <div className="t">{title}</div>
+          <div className="s">Call time {fmtHM(s.startTime)} · <b>{mins>0 ? "in "+dur(mins*60000) : dur(-mins*60000)+" ago"}</b>
+            {s.locationName ? " · "+s.locationName : ""}</div>
+        </div>
+        <button className="go" onClick={e=>{ e.stopPropagation(); onStart(); }}>Start</button>
+      </div>
+    );
+  }
+
+  const elapsed = now - startRef.getTime();
+  const overMs = now - sched.getTime();
+  const otSoFar = overMs*0 + (overMs/60000 > (Number(st.otGrace)||0) ? ceilQ(overMs/3600000) : 0);
+  const running = (s.rateType==="hourly"
+      ? (Number(s.rate)||0) * roundQ(Math.min(elapsed/3600000, b.scheduled))
+      : b.base) + otSoFar*b.otRate;
+
+  return (
+    <div className="livebar" onClick={onOpen}>
+      <span className="pulse"></span>
+      <div className="m">
+        <div className="t">{dur(elapsed)} · {money(running,st.currency)}</div>
+        <div className="s">{title} · {otSoFar>0
+          ? <b>{hoursLabel(otSoFar)} overtime</b>
+          : (overMs<0 ? <>wrap at {fmtHM(s.endTime)} · <b>{dur(-overMs)} left</b></> : <b>at scheduled wrap</b>)}</div>
+      </div>
+      <button className="go" onClick={e=>{ e.stopPropagation(); onWrap(); }}>Wrap</button>
+    </div>
+  );
+}
+
 /* ---------------- card ---------------- */
 function Card({s,st,g,brand,multi,onOpen,i}){
   const status = statusOf(s);
@@ -582,8 +724,9 @@ function Card({s,st,g,brand,multi,onOpen,i}){
     <div className={"card s-"+status} onClick={onOpen} style={{animationDelay:Math.min(i,8)*40+"ms"}}>
       <div className="card-top">
         <div style={{minWidth:0}}>
-          <div className="client disp">{s.project || s.client || "Untitled shoot"}</div>
-          <div className="loc">{[s.project?s.client:"", s.locationName||s.address].filter(Boolean).join(" · ") || "No location set"}</div>
+          <div className="client disp">{s.project || s.dayName || s.client || "Untitled shoot"}</div>
+          <div className="loc">{[s.project&&s.dayName?s.dayName:"", s.project?s.client:"", s.locationName||s.address]
+            .filter(Boolean).join(" · ") || "No location set"}</div>
         </div>
         <div className="amt">
           <div className={"v"+(s.paidAt?" done":"")}>{money(b.due,st.currency)}</div>
@@ -628,16 +771,44 @@ const Field = ({label,hint,children}) => (
 const Sect = ({children}) => (<div className="sect"><span className="eyebrow">{children}</span><span className="rule"></span></div>);
 
 /* ---------------- editor ---------------- */
-function Editor({shoot,st,onSave,onCancel}){
+function Editor({shoot,st,onSave,onCancel,onSaveClient,onSavePackage}){
   const [f,setF] = useState(shoot);
   const set = (k,v)=>setF(p=>({...p,[k]:v}));
   const b = bill(f,st);
+  const applyClient = c => setF(p=>({...p,
+    client:c.name, contact:c.contact||p.contact,
+    locationName:c.locationName||p.locationName, address:c.address||p.address,
+    brand:c.brand||p.brand,
+    rateType:c.rate?c.rateType:p.rateType, rate:c.rate||p.rate, otRate:c.otRate||p.otRate}));
+  const applyPkg = pk => setF(p=>({...p,
+    dayName:pk.dayName||p.dayName, rateType:pk.rateType, rate:pk.rate, otRate:pk.otRate||p.otRate,
+    endTime: pk.hours ? addHours(p.startTime, Number(pk.hours)) : p.endTime}));
+  const hasPresets = st.clients.length>0 || st.packages.length>0;
   return (
     <Sheet title={shoot.client||shoot.project ? "Edit shoot" : "New shoot"} onClose={onCancel}
       foot={<>
         <button className="btn ghost" onClick={onCancel}>Cancel</button>
         <button className="btn primary" onClick={()=>onSave(f)}>Save shoot</button>
       </>}>
+      {hasPresets && (
+        <>
+          <Sect>Quick fill</Sect>
+          {st.clients.length>0 && (
+            <div className="methods" style={{marginBottom:8}}>
+              {st.clients.map(c=>(<button key={c.id} className="pill sm" onClick={()=>applyClient(c)}>{c.name}</button>))}
+            </div>
+          )}
+          {st.packages.length>0 && (
+            <div className="methods">
+              {st.packages.map(pk=>(
+                <button key={pk.id} className="pill sm" onClick={()=>applyPkg(pk)}>
+                  {pk.name} · {money(pk.rate,st.currency)}{pk.rateType==="hourly"?"/hr":""}
+                </button>))}
+            </div>
+          )}
+        </>
+      )}
+
       <Sect>The job</Sect>
       {st.brands.length>1 && (
         <>
@@ -652,6 +823,10 @@ function Editor({shoot,st,onSave,onCancel}){
       <Field label="Project name" hint="What this shoot is called — appears as the title and on the invoice line.">
         <input value={f.project} onChange={e=>set("project",e.target.value)}
                placeholder="e.g. Sharma Reception — Teaser + Full Film" autoCapitalize="words"/>
+      </Field>
+      <Field label="Name this shoot" hint="The specific session — useful when one event runs over several days or blocks.">
+        <input value={f.dayName} onChange={e=>set("dayName",e.target.value)}
+               placeholder="e.g. Ceremony · Reception · Lead interviews" autoCapitalize="words"/>
       </Field>
       <Field label="Shooting for">
         <input value={f.client} onChange={e=>set("client",e.target.value)} placeholder="Name or company" autoCapitalize="words"/>
@@ -703,6 +878,24 @@ function Editor({shoot,st,onSave,onCancel}){
         <textarea value={f.notes} onChange={e=>set("notes",e.target.value)} placeholder="Deliverables, coverage, special requests…"/>
       </Field>
 
+      <Sect>Save for reuse</Sect>
+      <div style={{display:"flex",gap:9}}>
+        <button className="btn sm ghost" onClick={()=>{
+          if(!f.client.trim()) return;
+          onSaveClient({name:f.client.trim(), contact:f.contact, locationName:f.locationName,
+                        address:f.address, brand:f.brand, rateType:f.rateType, rate:f.rate, otRate:f.otRate});
+        }}>Save client</button>
+        <button className="btn sm ghost" onClick={()=>{
+          const nm = (f.dayName||f.project||"").trim();
+          if(!nm) return;
+          onSavePackage({name:nm, dayName:f.dayName, rateType:f.rateType, rate:f.rate, otRate:f.otRate,
+                         hours: roundQ(hoursBetween(dt(f.date,f.startTime), endDT(f)))});
+        }}>Save package</button>
+      </div>
+      <div className="hint" style={{marginTop:10}}>
+        Client saves the contact, venue and usual rate. Package saves the shoot name, duration and price — both appear as one-tap chips at the top of this form.
+      </div>
+
       <div className="statusband" style={{marginTop:8}}>
         <div style={{flex:1}}>
           <span className="eyebrow">Projected total</span>
@@ -722,6 +915,62 @@ function Detail({s,st,g,brand,days,onClose,onEdit,onPatch,onDelete,onInvoice,onP
   const [askOT,setAskOT] = useState(false);
   const [askPay,setAskPay] = useState(false);
   const [delArm,setDelArm] = useState(false);
+  const [exLabel,setExLabel] = useState("");
+  const [exAmt,setExAmt] = useState("");
+  const [exBill,setExBill] = useState(false);
+  const expenses = Array.isArray(s.expenses)?s.expenses:[];
+  const crew = Array.isArray(s.crew)?s.crew:[];
+  const shots = Array.isArray(s.shots)?s.shots:[];
+  const [cwName,setCwName] = useState("");
+  const [cwRole,setCwRole] = useState("Second shooter");
+  const [cwFee,setCwFee] = useState("");
+  const [shotIn,setShotIn] = useState("");
+  function addCrew(){
+    if(!cwName.trim()) return;
+    onPatch({crew:[...crew,{id:uid(),name:cwName.trim(),role:cwRole,fee:Number(cwFee)||0}]});
+    setCwName(""); setCwFee("");
+  }
+  function addShot(label){
+    const t = (label||shotIn).trim();
+    if(!t || shots.some(x=>x.label.toLowerCase()===t.toLowerCase())) return;
+    onPatch({shots:[...shots,{id:uid(),label:t,done:false}]});
+    setShotIn("");
+  }
+  function callSheetText(){
+    const L = [];
+    L.push([s.project,s.dayName].filter(Boolean).join(" — ") || s.client || "Shoot");
+    L.push(fmtDateLong(s.date));
+    L.push("Call " + fmtHM(s.startTime) + " · wrap " + fmtHM(s.endTime));
+    if(s.locationName || s.address) L.push([s.locationName,s.address].filter(Boolean).join("\n"));
+    if(s.client) L.push("Client: " + s.client);
+    if(crew.length) L.push("Crew: " + crew.map(c=>c.name+" ("+c.role+")").join(", "));
+    if(shots.length) L.push("Coverage:\n" + shots.map(x=>"· "+x.label).join("\n"));
+    if(s.notes) L.push(s.notes);
+    return L.join("\n\n");
+  }
+  async function shareCallSheet(){
+    const text = callSheetText();
+    try{
+      if(navigator.share){ await navigator.share({title:"Call sheet", text}); return; }
+      await navigator.clipboard.writeText(text); say("Call sheet copied");
+    }catch(e){ try{ await navigator.clipboard.writeText(text); say("Call sheet copied"); }catch(_){ say("Couldn't share"); } }
+  }
+  function addToCalendar(){
+    try{
+      const blob = new Blob([icsFor(s,brand)],{type:"text/calendar"});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = (s.dayName||s.project||s.client||"shoot").replace(/[^a-z0-9]+/gi,"-")+".ics";
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(()=>URL.revokeObjectURL(url),3000);
+      say("Calendar file ready");
+    }catch(e){ say("Couldn't build the event"); }
+  }
+  function addExpense(){
+    if(!exLabel.trim() || !Number(exAmt)) return;
+    onPatch({expenses:[...expenses,{id:uid(),label:exLabel.trim(),amount:Number(exAmt),billable:exBill}]});
+    setExLabel(""); setExAmt(""); setExBill(false);
+  }
   const status = statusOf(s);
   const b = bill(s,st);
   const groupTotal = billAll(days,st);
@@ -733,6 +982,17 @@ function Detail({s,st,g,brand,days,onClose,onEdit,onPatch,onDelete,onInvoice,onP
     onPatch({wrapTime:now, actualStart:s.actualStart||dt(s.date,s.startTime).toISOString()});
     if(hoursBetween(endDT(s), new Date(now))*60 > (Number(st.otGrace)||0)) setAskOT(true);
     else say("Wrapped");
+  }
+  function setStart(hm){
+    if(!hm) return;
+    onPatch({actualStart: dt(s.date,hm).toISOString()});
+  }
+  function setWrap(hm){
+    if(!hm) return;
+    const d = dt(s.date,hm);
+    const ref = s.actualStart ? new Date(s.actualStart) : dt(s.date,s.startTime);
+    if(d <= ref) d.setDate(d.getDate()+1);   // ran past midnight
+    onPatch({wrapTime:d.toISOString()});
   }
   function saveOT(){ onPatch({otBy:otName.trim(), otAt:new Date().toISOString()}); setAskOT(false); say("Overtime confirmed"); }
 
@@ -746,7 +1006,7 @@ function Detail({s,st,g,brand,days,onClose,onEdit,onPatch,onDelete,onInvoice,onP
   );
 
   return (
-    <Sheet title={s.project||s.client||"Untitled shoot"} onClose={onClose} foot={foot}>
+    <Sheet title={s.project||s.dayName||s.client||"Untitled shoot"} onClose={onClose} foot={foot}>
       <div className="statusband">
         <div style={{flex:1}}>
           <span className={"chip "+status} style={{display:"inline-block"}}>{STATUS_LB[status]}</span>
@@ -756,6 +1016,7 @@ function Detail({s,st,g,brand,days,onClose,onEdit,onPatch,onDelete,onInvoice,onP
             {s.rateType==="hourly" ? money(s.rate,st.currency)+"/hr × "+hoursLabel(b.scheduled) : "Flat fee "+money(b.base,st.currency)}
             {b.otHours>0 ? " · +"+hoursLabel(b.otHours)+" OT" : ""}
             {s.paidAt ? " · "+s.paidMethod+" "+fmtStamp(s.paidAt) : ""}
+            {(b.expTotal>0||b.crewCost>0) ? " · "+money(b.profit,st.currency)+" profit" : ""}
           </small>
         </div>
       </div>
@@ -788,8 +1049,20 @@ function Detail({s,st,g,brand,days,onClose,onEdit,onPatch,onDelete,onInvoice,onP
         </div>
       )}
 
+      <div className="acts">
+        <button onClick={addToCalendar}>📅 Calendar</button>
+        <button disabled={!(s.address||s.locationName)}
+          onClick={()=>{ const a=[s.locationName,s.address].filter(Boolean).join(", ");
+                         if(a) window.open(mapsHref(a),"_blank"); }}>📍 Directions</button>
+        <button disabled={!contactHref(s.contact)}
+          onClick={()=>{ const h=contactHref(s.contact); if(h) window.location.href=h; }}>
+          {s.contact && s.contact.includes("@") ? "✉️ Email" : "📞 Call"}
+        </button>
+      </div>
+
       <Sect>Details</Sect>
       <dl style={{margin:0}}>
+        {s.project && s.dayName && <div className="dl"><dt>This shoot</dt><dd>{s.dayName}</dd></div>}
         <div className="dl"><dt>Client</dt><dd>{s.client||"—"}</dd></div>
         <div className="dl"><dt>Location</dt><dd>{s.locationName||"—"}{s.address && <small>{s.address}</small>}</dd></div>
         <div className="dl"><dt>Date</dt><dd>{fmtDateLong(s.date)}</dd></div>
@@ -806,8 +1079,10 @@ function Detail({s,st,g,brand,days,onClose,onEdit,onPatch,onDelete,onInvoice,onP
           <div key={d.id} className={"dayrow"+(d.id===s.id?" here":"")}>
             <span className="n">{i+1}</span>
             <div className="m">
-              <b>{fmtDate(d.date,{weekday:"long",month:"short",day:"numeric"})}</b>
-              <span>{fmtHM(d.startTime)}–{d.wrapTime?fmtClock(d.wrapTime):fmtHM(d.endTime)} · {money(bill(d,st).due,st.currency)}</span>
+              <b>{d.dayName || fmtDate(d.date,{weekday:"long",month:"short",day:"numeric"})}</b>
+              <span>{(d.dayName ? fmtDate(d.date,{month:"short",day:"numeric"})+" · " : "")
+                + fmtHM(d.startTime)+"–"+(d.wrapTime?fmtClock(d.wrapTime):fmtHM(d.endTime))
+                + " · "+money(bill(d,st).due,st.currency)}</span>
             </div>
             <span className={"chip "+dst}>{STATUS_LB[dst]}</span>
           </div>
@@ -818,6 +1093,100 @@ function Detail({s,st,g,brand,days,onClose,onEdit,onPatch,onDelete,onInvoice,onP
         <button className="btn sm brass" style={{width:"100%",marginTop:9}} onClick={()=>onInvoice(unbilled)}>
           One invoice for all {unbilled.length} days · {money(billAll(unbilled,st).due,st.currency)}
         </button>
+      )}
+
+      <Sect>Shot list</Sect>
+      {shots.map(x=>(
+        <div key={x.id} className={"shotrow"+(x.done?" on":"")}
+             onClick={()=>onPatch({shots:shots.map(y=>y.id===x.id?{...y,done:!y.done}:y)})}>
+          <span className="box">{x.done?"✓":""}</span>
+          <span className="lb">{x.label}</span>
+          <button className="iconbtn" style={{width:30,height:30,fontSize:12}}
+            onClick={e=>{ e.stopPropagation(); onPatch({shots:shots.filter(y=>y.id!==x.id)}); }}>✕</button>
+        </div>
+      ))}
+      <div className="methods" style={{margin:"10px 0"}}>
+        {["Details","First look","Ceremony","Portraits","Speeches","Drone","B-roll","Room tour","Exterior","Interviews"]
+          .filter(q=>!shots.some(x=>x.label===q))
+          .map(q=>(<button key={q} className="pill sm" onClick={()=>addShot(q)}>+ {q}</button>))}
+      </div>
+      <div style={{display:"flex",gap:9}}>
+        <input value={shotIn} onChange={e=>setShotIn(e.target.value)} placeholder="Add your own"
+               onKeyDown={e=>{ if(e.key==="Enter") addShot(); }}/>
+        <button className="btn sm ghost" style={{flex:"none",padding:"12px 18px"}} onClick={()=>addShot()}>Add</button>
+      </div>
+      {shots.length>0 && (
+        <div className="hint" style={{marginTop:10}}>
+          {shots.filter(x=>x.done).length} of {shots.length} covered. Ticked items print as the deliverables line on the invoice.
+        </div>
+      )}
+
+      <Sect>Crew</Sect>
+      {crew.map(c=>(
+        <div key={c.id} className="dayrow">
+          <div className="m"><b>{c.name}</b><span>{c.role}</span></div>
+          {c.fee>0 && <span className="mono" style={{fontSize:14}}>{money(c.fee,st.currency)}</span>}
+          <button className="iconbtn" style={{width:32,height:32,fontSize:13}}
+            onClick={()=>onPatch({crew:crew.filter(x=>x.id!==c.id)})}>✕</button>
+        </div>
+      ))}
+      <div className="methods" style={{margin:"10px 0"}}>
+        {["Second shooter","Assistant","Drone op","Editor","Photographer"].map(r=>(
+          <button key={r} className={"pill sm"+(cwRole===r?" on":"")} onClick={()=>setCwRole(r)}>{r}</button>
+        ))}
+      </div>
+      <div className="row2">
+        <label className="f"><span className="lb">Name</span>
+          <input value={cwName} onChange={e=>setCwName(e.target.value)} placeholder="Who's on it" autoCapitalize="words"/></label>
+        <label className="f"><span className="lb">Their fee</span>
+          <input type="number" inputMode="decimal" value={cwFee} onChange={e=>setCwFee(e.target.value)} placeholder="0.00"/></label>
+      </div>
+      <div style={{display:"flex",gap:9}}>
+        <button className="btn sm ghost" onClick={addCrew}>Add crew</button>
+        <button className="btn sm brass" onClick={shareCallSheet}>Send call sheet</button>
+      </div>
+      <div className="hint" style={{marginTop:10}}>
+        Crew fees come straight off your profit. The call sheet sends venue, call time, coverage and crew as a text.
+      </div>
+
+      <Sect>Expenses</Sect>
+      {expenses.map(e=>(
+        <div key={e.id} className="dayrow">
+          <div className="m">
+            <b>{e.label}</b>
+            <span>{e.billable ? "Rebilled to client" : "Your cost"}</span>
+          </div>
+          <span className="mono" style={{fontSize:14}}>{money(e.amount,st.currency)}</span>
+          <button className="iconbtn" style={{width:32,height:32,fontSize:13}}
+            onClick={()=>onPatch({expenses:expenses.filter(x=>x.id!==e.id)})}>✕</button>
+        </div>
+      ))}
+      <div className="methods" style={{marginBottom:10}}>
+        {["Mileage","Parking","Second shooter","Editor","Gear rental","Meals"].map(q=>(
+          <button key={q} className="pill sm" onClick={()=>setExLabel(q)}>{q}</button>
+        ))}
+      </div>
+      <div className="row2">
+        <label className="f"><span className="lb">What for</span>
+          <input value={exLabel} onChange={e=>setExLabel(e.target.value)} placeholder="Mileage"/></label>
+        <label className="f"><span className="lb">Amount</span>
+          <input type="number" inputMode="decimal" value={exAmt} onChange={e=>setExAmt(e.target.value)} placeholder="0.00"/></label>
+      </div>
+      <div className="seg" style={{marginBottom:10}}>
+        <button className={!exBill?"on":""} onClick={()=>setExBill(false)}>My cost</button>
+        <button className={exBill?"on":""} onClick={()=>setExBill(true)}>Rebill to client</button>
+      </div>
+      <button className="btn sm ghost" style={{width:"100%"}} onClick={addExpense}>Add expense</button>
+      {(b.expTotal>0 || b.crewCost>0) && (
+        <div className="statusband" style={{marginTop:14,marginBottom:0}}>
+          <div style={{flex:1}}>
+            <span className="eyebrow">Profit on this shoot</span>
+            <div className="disp" style={{fontSize:24,marginTop:4}}>{money(b.profit,st.currency)}</div>
+            <small>{money(b.expTotal+b.crewCost,st.currency)} in costs
+              {b.crewCost>0 ? " ("+money(b.crewCost,st.currency)+" crew)" : ""}
+              {b.expBillable>0 ? ", "+money(b.expBillable,st.currency)+" rebilled" : ""}</small>
+          </div>
+        </div>
       )}
 
       <Sect>Progress</Sect>
@@ -845,6 +1214,22 @@ function Detail({s,st,g,brand,days,onClose,onEdit,onPatch,onDelete,onInvoice,onP
           <div><div className="t-lb">Delivered</div>
             <div className="t-v mono">{s.deliveredAt?fmtStamp(s.deliveredAt):(s.editDue?"Edit due "+fmtDate(s.editDue,{month:"short",day:"numeric"}):"No date set")}</div></div></li>
       </ul>
+
+      {(s.actualStart || s.wrapTime) && (
+        <>
+          <div className="row2">
+            <label className="f"><span className="lb">Actual start</span>
+              <input type="time" value={hmOf(s.actualStart)} onChange={e=>setStart(e.target.value)}/></label>
+            <label className="f"><span className="lb">Actual wrap</span>
+              <input type="time" value={hmOf(s.wrapTime)} onChange={e=>setWrap(e.target.value)}/></label>
+          </div>
+          <div className="hint">
+            Tapped Wrap late? Fix the real time here and overtime recalculates — currently
+            {b.otHours>0 ? " "+hoursLabel(b.otHours)+" OT at "+money(b.otRate,st.currency)+"/hr."
+                         : " no overtime."}
+          </div>
+        </>
+      )}
 
       {b.otHours>0 && !askOT && (
         <button className="btn sm ghost" style={{width:"100%",marginTop:6}} onClick={()=>setAskOT(true)}>
@@ -888,14 +1273,19 @@ function Invoice({list,st,brand,onClose,onPaid,say}){
   list.forEach(s=>{
     const sb = bill(s,st);
     lines.push({
-      desc: s.project || (s.rateType==="hourly"?"Photo / video coverage":"Photo / video coverage — flat rate"),
+      desc: [s.project, s.dayName].filter(Boolean).join(" — ")
+            || (s.rateType==="hourly"?"Photo / video coverage":"Photo / video coverage — flat rate"),
       sub: fmtDateLong(s.date)+" · "+fmtHM(s.startTime)+"–"+fmtHM(s.endTime)+(s.locationName?" · "+s.locationName:""),
       qty: s.rateType==="hourly" ? hoursLabel(sb.scheduled) : "1",
       rate: s.rateType==="hourly" ? money(s.rate,st.currency) : money(sb.base,st.currency),
       amt: sb.base
     });
+    (Array.isArray(s.expenses)?s.expenses:[]).filter(e=>e.billable).forEach(e=>lines.push({
+      desc:e.label, sub:"Reimbursable · "+fmtDate(s.date,{month:"short",day:"numeric"}),
+      qty:"1", rate:money(e.amount,st.currency), amt:Number(e.amount)||0
+    }));
     if(sb.otHours>0) lines.push({
-      desc:"Overtime coverage — "+fmtDate(s.date,{month:"short",day:"numeric"}),
+      desc:"Overtime — "+(s.dayName || fmtDate(s.date,{month:"short",day:"numeric"})),
       sub:"Wrapped "+fmtClock(s.wrapTime)+(s.otBy?" · approved on site by "+s.otBy:" · approval pending"),
       qty:hoursLabel(sb.otHours), rate:money(sb.otRate,st.currency), amt:sb.ot
     });
@@ -921,6 +1311,8 @@ function Invoice({list,st,brand,onClose,onPaid,say}){
   }
 
   const notes = Array.from(new Set(list.map(s=>s.notes).filter(Boolean)));
+  const covered = Array.from(new Set(list.flatMap(s=>(Array.isArray(s.shots)?s.shots:[]).filter(x=>x.done).map(x=>x.label))));
+  if(covered.length) notes.unshift("Coverage delivered: "+covered.join(", ")+".");
 
   return (
     <div className="inv-wrap">
@@ -1090,6 +1482,25 @@ function Settings({st,shoots,onClose,onSave,onRestore,say}){
       <Sect>Invoice footer</Sect>
       <Field label="Payment terms"><textarea value={f.terms} onChange={e=>set("terms",e.target.value)}/></Field>
       <Field label="Sign-off line"><input value={f.signoff} onChange={e=>set("signoff",e.target.value)}/></Field>
+
+      <Sect>Saved presets</Sect>
+      {f.clients.length===0 && f.packages.length===0 && (
+        <div className="hint">None yet. Fill out a shoot, then tap Save client or Save package at the bottom of that form.</div>
+      )}
+      {f.clients.map(c=>(
+        <div key={c.id} className="dayrow">
+          <div className="m"><b>{c.name}</b><span>Client · {c.locationName||"no venue"}{c.rate?" · "+money(c.rate,f.currency):""}</span></div>
+          <button className="iconbtn" style={{width:32,height:32,fontSize:13}}
+            onClick={()=>set("clients",f.clients.filter(x=>x.id!==c.id))}>✕</button>
+        </div>
+      ))}
+      {f.packages.map(pk=>(
+        <div key={pk.id} className="dayrow">
+          <div className="m"><b>{pk.name}</b><span>Package · {pk.hours?hoursLabel(pk.hours)+" · ":""}{money(pk.rate,f.currency)}{pk.rateType==="hourly"?"/hr":""}</span></div>
+          <button className="iconbtn" style={{width:32,height:32,fontSize:13}}
+            onClick={()=>set("packages",f.packages.filter(x=>x.id!==pk.id))}>✕</button>
+        </div>
+      ))}
 
       <Sect>Backup</Sect>
       <div style={{display:"flex",gap:9}}>
