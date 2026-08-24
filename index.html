@@ -1041,11 +1041,16 @@ function App() {
     });
     Object.values(groups).forEach(list => {
       list.sort((a, b) => a.date + a.startTime < b.date + b.startTime ? -1 : 1);
+      const dates = Array.from(new Set(list.map(x => x.date))).sort();
       list.forEach((s, i) => {
         m[s.id] = {
           n: i + 1,
           total: list.length,
-          ids: list.map(x => x.id)
+          ids: list.map(x => x.id),
+          days: dates.length,
+          dayIndex: dates.indexOf(s.date) + 1,
+          blockOfDay: list.filter(x => x.date === s.date).findIndex(x => x.id === s.id) + 1,
+          blocksToday: list.filter(x => x.date === s.date).length
         };
       });
     });
@@ -1263,13 +1268,15 @@ function App() {
     },
     onInvoice: list => issueInvoice(list),
     onPaid: m => markPaid(detail.invoiceNo, m),
-    onAddDay: () => {
+    onAddDay: mode => {
       const gid = detail.groupId || uid();
       if (!detail.groupId) patch(detail.id, {
         groupId: gid
       });
+      const same = mode === "same";
       const d = dt(detail.date, "12:00");
-      d.setDate(d.getDate() + 1);
+      if (!same) d.setDate(d.getDate() + 1);
+      const len = roundQ(hoursBetween(dt(detail.date, detail.startTime), endDT(detail)));
       const next = blankShoot(detail.brand, {
         groupId: gid,
         project: detail.project,
@@ -1279,8 +1286,8 @@ function App() {
         locationName: detail.locationName,
         address: detail.address,
         date: iso(d),
-        startTime: detail.startTime,
-        endTime: detail.endTime,
+        startTime: same ? detail.endTime : detail.startTime,
+        endTime: same ? addHours(detail.endTime, len) : detail.endTime,
         rateType: detail.rateType,
         rate: detail.rate,
         otRate: detail.otRate,
@@ -1436,7 +1443,7 @@ function Card({
     className: "chip " + status + " pushright"
   }, STATUS_LB[status]), g && /*#__PURE__*/React.createElement("span", {
     className: "chip day"
-  }, "Day ", g.n, "/", g.total), dv && /*#__PURE__*/React.createElement("span", {
+  }, g.days > 1 ? "Day " + g.dayIndex + "/" + g.days + (g.blocksToday > 1 ? " · " + g.blockOfDay + " of " + g.blocksToday : "") : "Block " + g.n + "/" + g.total), dv && /*#__PURE__*/React.createElement("span", {
     className: "chip " + dv.k
   }, dv.lb), multi && /*#__PURE__*/React.createElement("span", {
     className: "chip brand"
@@ -1872,6 +1879,7 @@ function Detail({
   const status = statusOf(s);
   const b = bill(s, st);
   const groupTotal = billAll(days, st);
+  const multiDay = new Set(days.map(d => d.date)).size > 1;
   const unbilled = days.filter(d => !d.invoiceNo);
   function start() {
     onPatch({
@@ -2069,7 +2077,7 @@ function Detail({
       fontSize: 13.5,
       color: "var(--cream-dim)"
     }
-  }, s.notes))), /*#__PURE__*/React.createElement(Sect, null, "Event days"), days.map((d, i) => {
+  }, s.notes))), /*#__PURE__*/React.createElement(Sect, null, multiDay ? "Event days" : "Same-day blocks"), days.map((d, i) => {
     const dst = statusOf(d);
     return /*#__PURE__*/React.createElement("div", {
       key: d.id,
@@ -2088,21 +2096,26 @@ function Detail({
     }) + " · " : "") + fmtHM(d.startTime) + "–" + (d.wrapTime ? fmtClock(d.wrapTime) : fmtHM(d.endTime)) + " · " + money(bill(d, st).due, st.currency))), /*#__PURE__*/React.createElement("span", {
       className: "chip " + dst
     }, STATUS_LB[dst]));
-  }), /*#__PURE__*/React.createElement("button", {
-    className: "btn sm ghost",
+  }), /*#__PURE__*/React.createElement("div", {
     style: {
-      width: "100%",
+      display: "flex",
+      gap: 9,
       marginTop: 4
-    },
-    onClick: onAddDay
-  }, "+ Add another day"), days.length > 1 && unbilled.length > 1 && /*#__PURE__*/React.createElement("button", {
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "btn sm ghost",
+    onClick: () => onAddDay("same")
+  }, "+ Block, same day"), /*#__PURE__*/React.createElement("button", {
+    className: "btn sm ghost",
+    onClick: () => onAddDay("next")
+  }, "+ Another day")), days.length > 1 && unbilled.length > 1 && /*#__PURE__*/React.createElement("button", {
     className: "btn sm brass",
     style: {
       width: "100%",
       marginTop: 9
     },
     onClick: () => onInvoice(unbilled)
-  }, "One invoice for all ", unbilled.length, " days · ", money(billAll(unbilled, st).due, st.currency)), /*#__PURE__*/React.createElement(Sect, null, "Shot list"), shots.map(x => /*#__PURE__*/React.createElement("div", {
+  }, "One invoice for all ", unbilled.length, " ", multiDay ? "days" : "blocks", " · ", money(billAll(unbilled, st).due, st.currency)), /*#__PURE__*/React.createElement(Sect, null, "Shot list"), shots.map(x => /*#__PURE__*/React.createElement("div", {
     key: x.id,
     className: "shotrow" + (x.done ? " on" : ""),
     onClick: () => onPatch({
@@ -2489,6 +2502,7 @@ function Invoice({
   const no = head.invoiceNo || "DRAFT";
   const issued = head.invoiceDate || new Date().toISOString();
   const paid = list.every(s => s.paidAt);
+  const invDates = Array.from(new Set(list.map(s => s.date)));
   const lines = [];
   list.forEach(s => {
     const sb = bill(s, st);
@@ -2567,7 +2581,7 @@ function Invoice({
     "aria-label": "Back"
   }, "←"), /*#__PURE__*/React.createElement("span", {
     className: "eyebrow"
-  }, "Invoice ", no, list.length > 1 ? " · " + list.length + " days" : ""), /*#__PURE__*/React.createElement("button", {
+  }, "Invoice ", no, list.length > 1 ? " · " + list.length + (invDates.length > 1 ? " days" : " sessions") : ""), /*#__PURE__*/React.createElement("button", {
     className: "iconbtn",
     onClick: share,
     "aria-label": "Share"
@@ -2603,9 +2617,9 @@ function Invoice({
     className: "v"
   }, head.client || "—", head.project && /*#__PURE__*/React.createElement("small", null, head.project), head.contact && /*#__PURE__*/React.createElement("small", null, head.contact))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "k"
-  }, list.length > 1 ? "Event dates" : "Shoot"), /*#__PURE__*/React.createElement("div", {
+  }, invDates.length > 1 ? "Event dates" : "Shoot"), /*#__PURE__*/React.createElement("div", {
     className: "v"
-  }, list.length > 1 ? fmtDate(list[0].date, {
+  }, invDates.length > 1 ? fmtDate(list[0].date, {
     month: "short",
     day: "numeric"
   }) + " – " + fmtDate(list[list.length - 1].date, {
@@ -2616,7 +2630,7 @@ function Invoice({
     month: "short",
     day: "numeric",
     year: "numeric"
-  }), /*#__PURE__*/React.createElement("small", null, list.length > 1 ? list.length + " days of coverage" : fmtHM(head.startTime) + " – " + (head.wrapTime ? fmtClock(head.wrapTime) + " (actual)" : fmtHM(head.endTime) + " (scheduled)")))), /*#__PURE__*/React.createElement("div", {
+  }), /*#__PURE__*/React.createElement("small", null, invDates.length > 1 ? invDates.length + " days of coverage" : list.length > 1 ? list.length + " sessions" : fmtHM(head.startTime) + " – " + (head.wrapTime ? fmtClock(head.wrapTime) + " (actual)" : fmtHM(head.endTime) + " (scheduled)")))), /*#__PURE__*/React.createElement("div", {
     style: {
       gridColumn: "1 / -1"
     }
