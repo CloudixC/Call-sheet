@@ -568,6 +568,7 @@ textarea{min-height:74px;resize:vertical;line-height:1.5}
   .paper{box-shadow:none;border-radius:0;padding:0;max-width:none}
 }
 `;
+const APP_VERSION = "v11";
 const KEY = "callsheet:v1";
 const mem = {};
 function lsWorks() {
@@ -3365,7 +3366,30 @@ function Settings({
     value: paste,
     onChange: e => setPaste(e.target.value),
     placeholder: "Paste your backup here, then tap Restore now"
-  }), /*#__PURE__*/React.createElement("div", {
+  }), /*#__PURE__*/React.createElement(Sect, null, "App version"), /*#__PURE__*/React.createElement("div", {
+    className: "dayrow"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "m"
+  }, /*#__PURE__*/React.createElement("b", null, "Build ", APP_VERSION), /*#__PURE__*/React.createElement("span", null, "Tap refresh if an update isn't showing")), /*#__PURE__*/React.createElement("button", {
+    className: "btn sm ghost",
+    style: {
+      flex: "none",
+      padding: "10px 14px"
+    },
+    onClick: async () => {
+      try {
+        if (window.caches) {
+          const ks = await caches.keys();
+          await Promise.all(ks.map(k => caches.delete(k)));
+        }
+        if (navigator.serviceWorker) {
+          const rs = await navigator.serviceWorker.getRegistrations();
+          await Promise.all(rs.map(r => r.unregister()));
+        }
+      } catch (e) {}
+      location.reload();
+    }
+  }, "Refresh app")), /*#__PURE__*/React.createElement("div", {
     className: "hint",
     style: {
       marginTop: 10
@@ -3384,7 +3408,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(/*#__PURE__*/React.c
 <script>
 if("serviceWorker" in navigator){
   window.addEventListener("load", function(){
-    navigator.serviceWorker.register("sw.js").catch(function(){});
+    navigator.serviceWorker.register("sw.js").then(function(r){ r.update(); }).catch(function(){});
   });
 }
 </script>

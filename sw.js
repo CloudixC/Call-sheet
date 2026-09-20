@@ -1,5 +1,6 @@
 /* Call Sheet service worker — v11
-   Precaches the app so it launches with no signal, and caches fonts on first online run. */
+   Network-first for the app itself, so a new upload shows up as soon as you're online.
+   Cache is the fallback, so it still opens with no signal. */
 const CACHE = "callsheet-v11";
 const CORE = ["./", "./index.html"];
 
@@ -20,20 +21,24 @@ self.addEventListener("fetch", e => {
   const req = e.request;
   if (req.method !== "GET") return;
 
-  // App shell: serve from cache first so it opens offline, refresh in the background.
+  // The app shell: try the network first (3s), fall back to cache when offline or slow.
   if (req.mode === "navigate") {
     e.respondWith(
-      caches.match("./index.html").then(hit => {
-        const net = fetch(req)
-          .then(res => { caches.open(CACHE).then(c => c.put("./index.html", res.clone())); return res; })
-          .catch(() => hit);
-        return hit || net;
-      })
+      Promise.race([
+        fetch(req).then(res => {
+          const copy = res.clone();
+          caches.open(CACHE).then(c => c.put("./index.html", copy));
+          return res;
+        }),
+        new Promise(resolve => setTimeout(() => resolve(null), 3000))
+      ])
+      .then(res => res || caches.match("./index.html"))
+      .catch(() => caches.match("./index.html"))
     );
     return;
   }
 
-  // Everything else (fonts, etc): cache first, then network, and keep a copy.
+  // Fonts and everything else: cache first, then network.
   e.respondWith(
     caches.match(req).then(hit => hit || fetch(req).then(res => {
       if (res && (res.ok || res.type === "opaque")) {
