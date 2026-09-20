@@ -985,6 +985,56 @@ function App() {
     setTimeout(() => setToast(""), 1900);
   };
   const [askBackup, setAskBackup] = useState(false);
+  function backupPayload(data) {
+    const d = data || {
+      shoots,
+      settings
+    };
+    const at = new Date();
+    return {
+      json: JSON.stringify({
+        app: "Call Sheet",
+        format: 1,
+        exportedAt: at.toISOString(),
+        exportedLocal: at.toLocaleString(),
+        shoots: d.shoots,
+        settings: d.settings
+      }, null, 2),
+      stamp: at.getFullYear() + "-" + pad2(at.getMonth() + 1) + "-" + pad2(at.getDate()) + "-" + pad2(at.getHours()) + pad2(at.getMinutes()),
+      at
+    };
+  }
+  function doExport(data) {
+    try {
+      const {
+        json,
+        stamp,
+        at
+      } = backupPayload(data);
+      const blob = new Blob([json], {
+        type: "application/json"
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "call-sheet-" + stamp + ".json";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+      setSettings(p => ({
+        ...p,
+        pendingBackup: 0,
+        lastBackupAt: at.toISOString()
+      }));
+      setAskBackup(false);
+      say("Exported call-sheet-" + stamp + ".json");
+      return true;
+    } catch (e) {
+      say("Export failed");
+      return false;
+    }
+  }
   const bump = () => {
     setSettings(p => ({
       ...p,
@@ -993,10 +1043,7 @@ function App() {
     setAskBackup(true);
   };
   async function doBackup(data) {
-    const text = JSON.stringify(data || {
-      shoots,
-      settings
-    });
+    const text = backupPayload(data).json;
     let ok = false;
     try {
       if (navigator.share) {
@@ -1338,6 +1385,7 @@ function App() {
     st: settings,
     shoots: shoots,
     onBackup: doBackup,
+    onExport: doExport,
     onClose: () => setShowSet(false),
     onSave: v => {
       setSettings(v);
@@ -1361,9 +1409,11 @@ function App() {
   }, /*#__PURE__*/React.createElement("b", null, "Saved on this device only"), "Send yourself a copy so nothing is lost if Safari clears."), /*#__PURE__*/React.createElement("button", {
     onClick: () => setAskBackup(false)
   }, "Later"), /*#__PURE__*/React.createElement("button", {
-    className: "go",
     onClick: () => doBackup()
-  }, "Back up")), toast && /*#__PURE__*/React.createElement("div", {
+  }, "Share"), /*#__PURE__*/React.createElement("button", {
+    className: "go",
+    onClick: () => doExport()
+  }, "Export")), toast && /*#__PURE__*/React.createElement("div", {
     className: "toast"
   }, toast));
 }
@@ -2808,6 +2858,7 @@ function Settings({
   st,
   shoots,
   onBackup,
+  onExport,
   onClose,
   onSave,
   onRestore,
@@ -2830,6 +2881,10 @@ function Settings({
     } : b)
   }));
   const backup = () => onBackup({
+    shoots,
+    settings: f
+  });
+  const exportFile = () => onExport({
     shoots,
     settings: f
   });
@@ -3001,7 +3056,14 @@ function Settings({
       fontSize: 13
     },
     onClick: () => set("packages", f.packages.filter(x => x.id !== pk.id))
-  }, "\u2715"))), /*#__PURE__*/React.createElement(Sect, null, "Backup"), /*#__PURE__*/React.createElement("div", {
+  }, "\u2715"))), /*#__PURE__*/React.createElement(Sect, null, "Backup"), /*#__PURE__*/React.createElement("button", {
+    className: "btn sm primary",
+    style: {
+      width: "100%",
+      marginBottom: 9
+    },
+    onClick: exportFile
+  }, "Export backup file"), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 9
@@ -3009,7 +3071,7 @@ function Settings({
   }, /*#__PURE__*/React.createElement("button", {
     className: "btn sm ghost",
     onClick: backup
-  }, "Copy / share backup"), /*#__PURE__*/React.createElement("button", {
+  }, "Share as text"), /*#__PURE__*/React.createElement("button", {
     className: "btn sm ghost",
     onClick: restore
   }, showPaste ? "Restore now" : "Restore")), showPaste && /*#__PURE__*/React.createElement("textarea", {
@@ -3024,7 +3086,7 @@ function Settings({
     style: {
       marginTop: 10
     }
-  }, shoots.length, " shoot", shoots.length === 1 ? "" : "s", " saved \xB7 last backup ", f.lastBackupAt ? fmtStamp(f.lastBackupAt) : "never", "."), /*#__PURE__*/React.createElement("div", {
+  }, shoots.length, " shoot", shoots.length === 1 ? "" : "s", " saved \xB7 last backup ", f.lastBackupAt ? fmtStamp(f.lastBackupAt) : "never", ". Export saves a file stamped with the date and time \u2014 call-sheet-2026-09-19-1432.json \u2014 so you can keep several and know which is newest."), /*#__PURE__*/React.createElement("div", {
     style: {
       height: 6
     }
