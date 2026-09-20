@@ -1,6 +1,6 @@
-/* Call Sheet service worker — v10
+/* Call Sheet service worker — v11
    Precaches the app so it launches with no signal, and caches fonts on first online run. */
-const CACHE = "callsheet-v10";
+const CACHE = "callsheet-v11";
 const CORE = ["./", "./index.html"];
 
 self.addEventListener("install", e => {

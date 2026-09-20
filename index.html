@@ -2627,6 +2627,232 @@ function Detail({
   }));
 }
 
+/* ---------------- invoice PDF (no libraries, works offline) ---------------- */
+function pdfEsc(t) {
+  return String(t == null ? "" : t).replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"').replace(/\u2212/g, "-").replace(/[\u2013\u2014]/g, "-").replace(/\u00b7/g, "-").replace(/\u00d7/g, "x").replace(/\u2026/g, "...").replace(/[^\x20-\x7E]/g, "").replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
+}
+const PDF_W = 612,
+  PDF_H = 792,
+  PDF_M = 54;
+const helvW = (t, size) => String(t).length * 0.5 * size; // close enough for wrapping
+const courW = (t, size) => String(t).length * 0.6 * size; // Courier is exactly 600/1000
+
+function pdfWrap(text, size, maxW) {
+  const words = String(text || "").split(/\s+/).filter(Boolean);
+  const out = [];
+  let cur = "";
+  words.forEach(w => {
+    const t = cur ? cur + " " + w : w;
+    if (helvW(t, size) > maxW && cur) {
+      out.push(cur);
+      cur = w;
+    } else cur = t;
+  });
+  if (cur) out.push(cur);
+  return out.length ? out : [""];
+}
+function buildInvoicePDF(d) {
+  const pages = [];
+  let ops = [],
+    y = PDF_H - PDF_M;
+  const right = PDF_W - PDF_M;
+  const gray = v => ops.push(v + " " + v + " " + v + " rg");
+  const black = () => ops.push("0 0 0 rg");
+  const txt = (t, x, yy, size, font, spacing) => {
+    ops.push("BT /" + font + " " + size + " Tf " + (spacing || 0) + " Tc 1 0 0 1 " + x.toFixed(1) + " " + yy.toFixed(1) + " Tm (" + pdfEsc(t) + ") Tj ET");
+  };
+  const num = (t, xRight, yy, size) => txt(t, xRight - courW(t, size), yy, size, "F5");
+  const rule = (yy, w, x1, x2) => ops.push((w || 0.5) + " w " + (x1 || PDF_M) + " " + yy.toFixed(1) + " m " + (x2 || right) + " " + yy.toFixed(1) + " l S");
+  const newPage = () => {
+    pages.push(ops);
+    ops = [];
+    y = PDF_H - PDF_M;
+  };
+  const room = need => {
+    if (y - need < PDF_M + 40) newPage();
+  };
+
+  /* header */
+  txt(d.brand.name, PDF_M, y - 16, 20, "F4");
+  const headRight = right - 150;
+  txt("INVOICE", headRight, y - 14, 15, "F2", 3);
+  gray(0.38);
+  txt(d.no, headRight, y - 30, 9, "F5");
+  txt(d.issued, headRight, y - 43, 9, "F5");
+  let hy = y - 30;
+  String(d.brand.line || "").split("\n").concat(String(d.brand.contact || "").split("\n")).filter(Boolean).forEach(l => {
+    txt(l, PDF_M, hy, 8.5, "F1");
+    hy -= 11;
+  });
+  black();
+  y = Math.min(hy, y - 58) - 6;
+  rule(y, 1.2);
+  y -= 22;
+
+  /* meta blocks */
+  const col2 = PDF_M + 290;
+  const metaBlock = (x, label, value, subs) => {
+    gray(0.52);
+    txt(label, x, y, 7.5, "F2", 1.6);
+    black();
+    txt(value, x, y - 14, 11, "F1");
+    let yy = y - 26;
+    (subs || []).filter(Boolean).forEach(sline => {
+      gray(0.42);
+      txt(sline, x, yy, 8.5, "F1");
+      black();
+      yy -= 11;
+    });
+    return yy;
+  };
+  const a = metaBlock(PDF_M, "BILLED TO", d.client, d.clientSubs);
+  const b2 = metaBlock(col2, d.shootLabel, d.shootValue, d.shootSubs);
+  y = Math.min(a, b2) - 8;
+  if (d.location) {
+    gray(0.52);
+    txt("LOCATION", PDF_M, y, 7.5, "F2", 1.6);
+    black();
+    txt(d.location, PDF_M, y - 14, 10.5, "F1");
+    y -= 28;
+    if (d.address) {
+      gray(0.42);
+      txt(d.address, PDF_M, y, 8.5, "F1");
+      black();
+      y -= 14;
+    }
+  }
+  y -= 4;
+  gray(0.72);
+  rule(y, 0.5);
+  black();
+  y -= 20;
+
+  /* table */
+  const cQty = PDF_M + 330,
+    cRate = PDF_M + 420,
+    cAmt = right;
+  const tableHead = () => {
+    gray(0.52);
+    txt("DESCRIPTION", PDF_M, y, 7.5, "F2", 1.6);
+    txt("QTY", cQty - 26, y, 7.5, "F2", 1.6);
+    txt("RATE", cRate - 30, y, 7.5, "F2", 1.6);
+    txt("AMOUNT", cAmt - 48, y, 7.5, "F2", 1.6);
+    black();
+    y -= 8;
+    gray(0.72);
+    rule(y, 0.5);
+    black();
+    y -= 16;
+  };
+  tableHead();
+  d.lines.forEach(L => {
+    const subs = pdfWrap(L.sub, 8.5, 300);
+    room(20 + subs.length * 11);
+    if (ops.length === 0) tableHead();
+    txt(L.desc, PDF_M, y, 10.5, "F1");
+    num(L.qty, cQty, y, 9);
+    num(L.rate, cRate, y, 9);
+    num(L.amt, cAmt, y, 9);
+    let yy = y - 12;
+    gray(0.45);
+    subs.forEach(sl => {
+      txt(sl, PDF_M, yy, 8.5, "F1");
+      yy -= 10.5;
+    });
+    black();
+    y = yy - 8;
+    gray(0.85);
+    rule(y + 4, 0.4);
+    black();
+    y -= 10;
+  });
+
+  /* totals */
+  room(120);
+  y -= 6;
+  const tLabel = right - 150;
+  const totalRow = (label, value, strong) => {
+    if (strong) {
+      y -= 6;
+      rule(y + 10, 1.2, tLabel, right);
+      y -= 8;
+      txt(label, tLabel, y, 13, "F4");
+      num(value, right, y, 13);
+      y -= 20;
+    } else {
+      gray(0.3);
+      txt(label, tLabel, y, 9.5, "F1");
+      black();
+      num(value, right, y, 9.5);
+      y -= 14;
+    }
+  };
+  d.totals.forEach(t => totalRow(t[0], t[1], t[2]));
+
+  /* paid stamp */
+  if (d.paid) {
+    ops.push("q 0.30 0.48 0.65 RG 1.4 w " + PDF_M + " " + (y - 4) + " 86 26 re S Q");
+    ops.push("0.30 0.48 0.65 rg");
+    txt("PAID", PDF_M + 18, y + 5, 13, "F2", 3);
+    black();
+  }
+
+  /* notes + signoff */
+  if (d.notes && d.notes.length) {
+    y -= 24;
+    room(60);
+    gray(0.72);
+    rule(y + 12, 0.5);
+    black();
+    gray(0.42);
+    d.notes.forEach(p => {
+      pdfWrap(p, 8.5, right - PDF_M).forEach(l => {
+        room(16);
+        txt(l, PDF_M, y, 8.5, "F1");
+        y -= 11.5;
+      });
+      y -= 5;
+    });
+    black();
+  }
+  if (d.signoff) {
+    room(30);
+    y -= 8;
+    txt(d.signoff, PDF_M, y, 11, "F3");
+  }
+  pages.push(ops);
+
+  /* assemble the file */
+  const fonts = [["F1", "Helvetica"], ["F2", "Helvetica-Bold"], ["F3", "Times-Italic"], ["F4", "Times-Roman"], ["F5", "Courier"]];
+  const objs = [];
+  const fontFirst = 3 + pages.length * 2;
+  const fontRes = fonts.map((f, i) => "/" + f[0] + " " + (fontFirst + i) + " 0 R").join(" ");
+  const kids = pages.map((_, i) => 3 + i * 2 + " 0 R").join(" ");
+  objs.push("<< /Type /Catalog /Pages 2 0 R >>");
+  objs.push("<< /Type /Pages /Count " + pages.length + " /Kids [" + kids + "] >>");
+  pages.forEach((pOps, i) => {
+    objs.push("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 " + PDF_W + " " + PDF_H + "] " + "/Resources << /Font << " + fontRes + " >> >> /Contents " + (4 + i * 2) + " 0 R >>");
+    const stream = pOps.join("\n");
+    objs.push("<< /Length " + stream.length + " >>\nstream\n" + stream + "\nendstream");
+  });
+  fonts.forEach(f => objs.push("<< /Type /Font /Subtype /Type1 /BaseFont /" + f[1] + " /Encoding /WinAnsiEncoding >>"));
+  let out = "%PDF-1.4\n";
+  const offsets = [0];
+  objs.forEach((o, i) => {
+    offsets.push(out.length);
+    out += i + 1 + " 0 obj\n" + o + "\nendobj\n";
+  });
+  const xref = out.length;
+  out += "xref\n0 " + (objs.length + 1) + "\n0000000000 65535 f \n";
+  for (let i = 1; i <= objs.length; i++) out += String(offsets[i]).padStart(10, "0") + " 00000 n \n";
+  out += "trailer\n<< /Size " + (objs.length + 1) + " /Root 1 0 R >>\nstartxref\n" + xref + "\n%%EOF";
+  const bytes = new Uint8Array(out.length);
+  for (let i = 0; i < out.length; i++) bytes[i] = out.charCodeAt(i) & 0xff;
+  return new Blob([bytes], {
+    type: "application/pdf"
+  });
+}
+
 /* ---------------- invoice ---------------- */
 function Invoice({
   list,
@@ -2709,6 +2935,64 @@ function Invoice({
     }
   }
   const notes = Array.from(new Set(list.map(s => s.notes).filter(Boolean)));
+  function savePDF() {
+    try {
+      const totals = [["Subtotal", money(b.sub, st.currency)]];
+      if (st.taxOn) totals.push([st.taxLabel + " (" + st.taxRate + "%)", money(b.tax, st.currency)]);
+      if (b.deposit > 0) totals.push(["Deposit paid", "-" + money(b.deposit, st.currency)]);
+      totals.push([paid ? "Paid in full" : b.deposit > 0 ? "Balance due" : "Total due", money(b.due, st.currency), true]);
+      const blob = buildInvoicePDF({
+        brand,
+        no,
+        issued: new Date(issued).toLocaleDateString(undefined, {
+          month: "short",
+          day: "numeric",
+          year: "numeric"
+        }),
+        client: head.client || "-",
+        clientSubs: [head.project, head.contact],
+        shootLabel: invDates.length > 1 ? "EVENT DATES" : "SHOOT",
+        shootValue: invDates.length > 1 ? fmtDate(list[0].date, {
+          month: "short",
+          day: "numeric"
+        }) + " - " + fmtDate(list[list.length - 1].date, {
+          month: "short",
+          day: "numeric",
+          year: "numeric"
+        }) : fmtDate(head.date, {
+          month: "short",
+          day: "numeric",
+          year: "numeric"
+        }),
+        shootSubs: [invDates.length > 1 ? invDates.length + " days of coverage" : list.length > 1 ? list.length + " sessions" : fmtHM(head.startTime) + " - " + (head.wrapTime ? fmtClock(head.wrapTime) + " (actual)" : fmtHM(head.endTime) + " (scheduled)")],
+        location: head.locationName,
+        address: head.address,
+        lines: lines.map(l => ({
+          desc: l.desc,
+          sub: l.sub,
+          qty: l.qty,
+          rate: l.rate,
+          amt: money(l.amt, st.currency)
+        })),
+        totals,
+        paid,
+        notes: [...notes, st.terms].filter(Boolean),
+        signoff: st.signoff
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "invoice-" + no + ".pdf";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+      say("invoice-" + no + ".pdf saved");
+    } catch (e) {
+      console.error(e);
+      say("Couldn't build the PDF");
+    }
+  }
   const covered = Array.from(new Set(list.flatMap(s => (Array.isArray(s.shots) ? s.shots : []).filter(x => x.done).map(x => x.label))));
   if (covered.length) notes.unshift("Coverage delivered: " + covered.join(", ") + ".");
   return /*#__PURE__*/React.createElement("div", {
@@ -2849,7 +3133,7 @@ function Invoice({
     onClick: share
   }, "Share"), /*#__PURE__*/React.createElement("button", {
     className: "btn primary",
-    onClick: () => window.print()
+    onClick: savePDF
   }, "PDF")));
 }
 
