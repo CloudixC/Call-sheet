@@ -803,6 +803,7 @@ const blankShoot = (brand, seed) => ({
   otRate: "",
   deposit: "",
   notes: "",
+  hoursWorked: "",
   actualStart: null,
   wrapTime: null,
   otBy: "",
@@ -826,12 +827,17 @@ function bill(s, st) {
   const rate = Number(s.rate) || 0;
   const wrap = s.wrapTime ? new Date(s.wrapTime) : null;
   const sched = endDT(s);
+  const manual = s.hoursWorked !== "" && s.hoursWorked != null && !isNaN(Number(s.hoursWorked));
+  const worked = manual ? roundQ(Number(s.hoursWorked)) : wrap ? roundQ(hoursBetween(s.actualStart ? new Date(s.actualStart) : dt(s.date, s.startTime), wrap)) : scheduled;
   let otHours = 0;
-  if (wrap && sched) {
+  if (manual) {
+    otHours = Math.max(0, ceilQ(worked - scheduled));
+  } else if (wrap && sched) {
     const raw = hoursBetween(sched, wrap);
     if (raw * 60 > (Number(st.otGrace) || 0)) otHours = ceilQ(raw);
   }
-  const base = s.rateType === "hourly" ? rate * scheduled : rate;
+  const baseHours = manual ? Math.min(worked, scheduled) : scheduled;
+  const base = s.rateType === "hourly" ? rate * baseHours : rate;
   const otRate = Number(s.otRate) || (s.rateType === "hourly" ? rate * (Number(st.otMultiplier) || 1.5) : scheduled > 0 ? rate / scheduled * (Number(st.otMultiplier) || 1.5) : 0);
   const ot = otHours * otRate;
   const exp = Array.isArray(s.expenses) ? s.expenses : [];
@@ -846,6 +852,9 @@ function bill(s, st) {
   const profit = base + ot + expBillable - expTotal - crewCost;
   return {
     scheduled,
+    worked,
+    manual,
+    baseHours,
     base,
     otHours,
     otRate,
@@ -864,11 +873,12 @@ function bill(s, st) {
 function billAll(list, st) {
   return list.reduce((a, s) => {
     const b = bill(s, st);
-    ["base", "ot", "expTotal", "expBillable", "crewCost", "sub", "tax", "total", "deposit", "due", "profit"].forEach(k => a[k] += b[k]);
+    ["base", "ot", "worked", "expTotal", "expBillable", "crewCost", "sub", "tax", "total", "deposit", "due", "profit"].forEach(k => a[k] += b[k]);
     return a;
   }, {
     base: 0,
     ot: 0,
+    worked: 0,
     expTotal: 0,
     expBillable: 0,
     crewCost: 0,
@@ -1101,6 +1111,25 @@ function App() {
     return () => clearInterval(t);
   }, [ticker]);
   const shown = sorted.filter(s => inBrand(s) && matches(s, filter));
+  const cards = useMemo(() => {
+    const out = [],
+      seen = new Set();
+    shown.forEach(s => {
+      if (s.groupId) {
+        if (seen.has(s.groupId)) return;
+        seen.add(s.groupId);
+        const members = shown.filter(x => x.groupId === s.groupId).slice().sort((a, b) => a.date + a.startTime < b.date + b.startTime ? -1 : 1);
+        out.push({
+          key: s.groupId,
+          items: members
+        });
+      } else out.push({
+        key: s.id,
+        items: [s]
+      });
+    });
+    return out;
+  }, [shown]);
   const detail = shoots.find(s => s.id === detailId) || null;
   const invoiceList = invoiceNo ? sorted.filter(s => s.invoiceNo === invoiceNo).slice().reverse() : [];
   function issueInvoice(list) {
@@ -1166,7 +1195,7 @@ function App() {
     className: "iconbtn",
     onClick: () => setShowSet(true),
     "aria-label": "Settings"
-  }, "⚙")), Number(settings.pendingBackup) > 0 && /*#__PURE__*/React.createElement("div", {
+  }, "\u2699")), Number(settings.pendingBackup) > 0 && /*#__PURE__*/React.createElement("div", {
     className: "owed" + (Number(settings.pendingBackup) > 4 ? " stale" : "")
   }, settings.pendingBackup, " change", Number(settings.pendingBackup) === 1 ? "" : "s", " since your last backup", settings.lastBackupAt ? " · " + fmtStamp(settings.lastBackupAt) : " · never backed up"), outstanding.amt > 0.004 && /*#__PURE__*/React.createElement("div", {
     className: "owed"
@@ -1209,15 +1238,16 @@ function App() {
     className: "list"
   }, store.mode === "memory" && /*#__PURE__*/React.createElement("div", {
     className: "warnbar"
-  }, /*#__PURE__*/React.createElement("strong", null, "This browser isn't saving."), " Anything you add disappears when you close it — take a backup from Settings."), shown.length === 0 && /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("strong", null, "This browser isn't saving."), " Anything you add disappears when you close it \u2014 take a backup from Settings."), shown.length === 0 && /*#__PURE__*/React.createElement("div", {
     className: "empty"
   }, /*#__PURE__*/React.createElement("div", {
     className: "disp"
-  }, shoots.length === 0 ? "No shoots yet" : "Nothing here"), /*#__PURE__*/React.createElement("p", null, shoots.length === 0 ? "Add your first booking and the invoice writes itself." : "Try another filter.")), shown.map((s, i) => {
-    const prev = shown[i - 1];
+  }, shoots.length === 0 ? "No shoots yet" : "Nothing here"), /*#__PURE__*/React.createElement("p", null, shoots.length === 0 ? "Add your first booking and the invoice writes itself." : "Try another filter.")), cards.map((c, i) => {
+    const s = c.items[0];
+    const prev = cards[i - 1] && cards[i - 1].items[0];
     const head = !prev || monthKey(prev.date) !== monthKey(s.date);
     return /*#__PURE__*/React.createElement(React.Fragment, {
-      key: s.id
+      key: c.key
     }, head && /*#__PURE__*/React.createElement("div", {
       className: "daygroup"
     }, /*#__PURE__*/React.createElement("span", {
@@ -1228,9 +1258,8 @@ function App() {
     })), /*#__PURE__*/React.createElement("span", {
       className: "rule"
     })), /*#__PURE__*/React.createElement(Card, {
-      s: s,
+      items: c.items,
       st: settings,
-      g: groupMap[s.id],
       brand: brandOf(s.brand),
       multi: settings.brands.length > 1,
       onOpen: () => setDetail(s.id),
@@ -1366,7 +1395,7 @@ function LiveBar({
       className: "t"
     }, title), /*#__PURE__*/React.createElement("div", {
       className: "s"
-    }, "Call time ", fmtHM(s.startTime), " · ", /*#__PURE__*/React.createElement("b", null, mins > 0 ? "in " + dur(mins * 60000) : dur(-mins * 60000) + " ago"), s.locationName ? " · " + s.locationName : "")), /*#__PURE__*/React.createElement("button", {
+    }, "Call time ", fmtHM(s.startTime), " \xB7 ", /*#__PURE__*/React.createElement("b", null, mins > 0 ? "in " + dur(mins * 60000) : dur(-mins * 60000) + " ago"), s.locationName ? " · " + s.locationName : "")), /*#__PURE__*/React.createElement("button", {
       className: "go",
       onClick: e => {
         e.stopPropagation();
@@ -1387,9 +1416,9 @@ function LiveBar({
     className: "m"
   }, /*#__PURE__*/React.createElement("div", {
     className: "t"
-  }, dur(elapsed), " · ", money(running, st.currency)), /*#__PURE__*/React.createElement("div", {
+  }, dur(elapsed), " \xB7 ", money(running, st.currency)), /*#__PURE__*/React.createElement("div", {
     className: "s"
-  }, title, " · ", otSoFar > 0 ? /*#__PURE__*/React.createElement("b", null, hoursLabel(otSoFar), " overtime") : overMs < 0 ? /*#__PURE__*/React.createElement(React.Fragment, null, "wrap at ", fmtHM(s.endTime), " · ", /*#__PURE__*/React.createElement("b", null, dur(-overMs), " left")) : /*#__PURE__*/React.createElement("b", null, "at scheduled wrap"))), /*#__PURE__*/React.createElement("button", {
+  }, title, " \xB7 ", otSoFar > 0 ? /*#__PURE__*/React.createElement("b", null, hoursLabel(otSoFar), " overtime") : overMs < 0 ? /*#__PURE__*/React.createElement(React.Fragment, null, "wrap at ", fmtHM(s.endTime), " \xB7 ", /*#__PURE__*/React.createElement("b", null, dur(-overMs), " left")) : /*#__PURE__*/React.createElement("b", null, "at scheduled wrap"))), /*#__PURE__*/React.createElement("button", {
     className: "go",
     onClick: e => {
       e.stopPropagation();
@@ -1399,18 +1428,33 @@ function LiveBar({
 }
 
 /* ---------------- card ---------------- */
+const ST_ORDER = ["upcoming", "today", "live", "wrapped", "invoiced", "paid"];
 function Card({
-  s,
+  items,
   st,
-  g,
   brand,
   multi,
   onOpen,
   i
 }) {
-  const status = statusOf(s);
-  const b = bill(s, st);
-  const dv = deliveryOf(s);
+  const s = items[0];
+  const last = items[items.length - 1];
+  const many = items.length > 1;
+  const dates = Array.from(new Set(items.map(x => x.date)));
+  const b = billAll(items, st);
+  const status = items.map(statusOf).reduce((a, x) => ST_ORDER.indexOf(x) < ST_ORDER.indexOf(a) ? x : a, "paid");
+  const dv = items.map(deliveryOf).find(d => d && d.k !== "delivered") || (items.every(x => x.deliveredAt) ? deliveryOf(s) : null);
+  const allPaid = items.every(x => x.paidAt);
+  const names = items.map(x => x.dayName).filter(Boolean);
+  const when = many ? dates.length > 1 ? fmtDate(s.date, {
+    month: "short",
+    day: "numeric"
+  }) + " – " + fmtDate(last.date, {
+    weekday: "short",
+    month: "short",
+    day: "numeric"
+  }) : fmtDate(s.date) + " · " + fmtHM(s.startTime) + "–" + (last.wrapTime ? fmtClock(last.wrapTime) : fmtHM(last.endTime)) : fmtDate(s.date) + " · " + fmtHM(s.startTime) + "–" + (s.wrapTime ? fmtClock(s.wrapTime) : fmtHM(s.endTime));
+  const sub = many ? [names.join(" · "), s.client, s.locationName || s.address].filter(Boolean).join(" · ") : [s.project && s.dayName ? s.dayName : "", s.project ? s.client : "", s.locationName || s.address].filter(Boolean).join(" · ") || "No location set";
   return /*#__PURE__*/React.createElement("div", {
     className: "card s-" + status,
     onClick: onOpen,
@@ -1427,23 +1471,23 @@ function Card({
     className: "client disp"
   }, s.project || s.dayName || s.client || "Untitled shoot"), /*#__PURE__*/React.createElement("div", {
     className: "loc"
-  }, [s.project && s.dayName ? s.dayName : "", s.project ? s.client : "", s.locationName || s.address].filter(Boolean).join(" · ") || "No location set")), /*#__PURE__*/React.createElement("div", {
+  }, sub)), /*#__PURE__*/React.createElement("div", {
     className: "amt"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "v" + (s.paidAt ? " done" : "")
+    className: "v" + (allPaid ? " done" : "")
   }, money(b.due, st.currency)), /*#__PURE__*/React.createElement("div", {
     className: "k"
-  }, s.paidAt ? "Paid" : s.rateType === "hourly" ? "Hourly" : "Flat"))), /*#__PURE__*/React.createElement("div", {
+  }, allPaid ? "Paid" : many ? dates.length > 1 ? dates.length + " days" : items.length + " blocks" : s.rateType === "hourly" ? "Hourly" : "Flat"))), /*#__PURE__*/React.createElement("div", {
     className: "card-bot"
   }, /*#__PURE__*/React.createElement("span", {
     className: "when mono"
-  }, fmtDate(s.date), " · ", fmtHM(s.startTime), "–", s.wrapTime ? fmtClock(s.wrapTime) : fmtHM(s.endTime)), b.otHours > 0 && /*#__PURE__*/React.createElement("span", {
+  }, when), b.otHours > 0 && /*#__PURE__*/React.createElement("span", {
     className: "otflag"
   }, "+", hoursLabel(b.otHours), " OT"), /*#__PURE__*/React.createElement("span", {
     className: "chip " + status + " pushright"
-  }, STATUS_LB[status]), g && /*#__PURE__*/React.createElement("span", {
+  }, STATUS_LB[status]), many && /*#__PURE__*/React.createElement("span", {
     className: "chip day"
-  }, g.days > 1 ? "Day " + g.dayIndex + "/" + g.days + (g.blocksToday > 1 ? " · " + g.blockOfDay + " of " + g.blocksToday : "") : "Block " + g.n + "/" + g.total), dv && /*#__PURE__*/React.createElement("span", {
+  }, dates.length > 1 ? dates.length + " days" : items.length + " blocks"), dv && /*#__PURE__*/React.createElement("span", {
     className: "chip " + dv.k
   }, dv.lb), multi && /*#__PURE__*/React.createElement("span", {
     className: "chip brand"
@@ -1472,7 +1516,7 @@ function Sheet({
     className: "iconbtn",
     onClick: onClose,
     "aria-label": "Close"
-  }, "✕")), /*#__PURE__*/React.createElement("div", {
+  }, "\u2715")), /*#__PURE__*/React.createElement("div", {
     className: "sheet-body"
   }, children), foot && /*#__PURE__*/React.createElement("div", {
     className: "sheet-foot"
@@ -1559,7 +1603,7 @@ function Editor({
     key: pk.id,
     className: "pill sm",
     onClick: () => applyPkg(pk)
-  }, pk.name, " · ", money(pk.rate, st.currency), pk.rateType === "hourly" ? "/hr" : "")))), /*#__PURE__*/React.createElement(Sect, null, "The job"), st.brands.length > 1 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", {
+  }, pk.name, " \xB7 ", money(pk.rate, st.currency), pk.rateType === "hourly" ? "/hr" : "")))), /*#__PURE__*/React.createElement(Sect, null, "The job"), st.brands.length > 1 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", {
     className: "lb",
     style: {
       fontSize: 10,
@@ -1580,19 +1624,19 @@ function Editor({
     onClick: () => set("brand", br.id)
   }, br.name)))), /*#__PURE__*/React.createElement(Field, {
     label: "Project name",
-    hint: "What this shoot is called — appears as the title and on the invoice line."
+    hint: "What this shoot is called \u2014 appears as the title and on the invoice line."
   }, /*#__PURE__*/React.createElement("input", {
     value: f.project,
     onChange: e => set("project", e.target.value),
-    placeholder: "e.g. Sharma Reception — Teaser + Full Film",
+    placeholder: "e.g. Sharma Reception \u2014 Teaser + Full Film",
     autoCapitalize: "words"
   })), /*#__PURE__*/React.createElement(Field, {
     label: "Name this shoot",
-    hint: "The specific session — useful when one event runs over several days or blocks."
+    hint: "The specific session \u2014 useful when one event runs over several days or blocks."
   }, /*#__PURE__*/React.createElement("input", {
     value: f.dayName,
     onChange: e => set("dayName", e.target.value),
-    placeholder: "e.g. Ceremony · Reception · Lead interviews",
+    placeholder: "e.g. Ceremony \xB7 Reception \xB7 Lead interviews",
     autoCapitalize: "words"
   })), /*#__PURE__*/React.createElement(Field, {
     label: "Shooting for"
@@ -1675,6 +1719,16 @@ function Editor({
     onChange: e => set("otRate", e.target.value),
     placeholder: "Auto"
   })), /*#__PURE__*/React.createElement(Field, {
+    label: "Hours worked (optional)",
+    hint: "Only if it ran long or short \u2014 blank uses the booked window, or your wrap time once you wrap."
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    inputMode: "decimal",
+    step: "0.25",
+    value: f.hoursWorked,
+    onChange: e => set("hoursWorked", e.target.value),
+    placeholder: hoursLabel(b.scheduled).replace(" hr", "")
+  })), /*#__PURE__*/React.createElement(Field, {
     label: "Deposit already paid (optional)"
   }, /*#__PURE__*/React.createElement("input", {
     type: "number",
@@ -1694,7 +1748,7 @@ function Editor({
   }, /*#__PURE__*/React.createElement("textarea", {
     value: f.notes,
     onChange: e => set("notes", e.target.value),
-    placeholder: "Deliverables, coverage, special requests…"
+    placeholder: "Deliverables, coverage, special requests\u2026"
   })), /*#__PURE__*/React.createElement(Sect, null, "Save for reuse"), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
@@ -1734,7 +1788,7 @@ function Editor({
     style: {
       marginTop: 10
     }
-  }, "Client saves the contact, venue and usual rate. Package saves the shoot name, duration and price — both appear as one-tap chips at the top of this form."), /*#__PURE__*/React.createElement("div", {
+  }, "Client saves the contact, venue and usual rate. Package saves the shoot name, duration and price \u2014 both appear as one-tap chips at the top of this form."), /*#__PURE__*/React.createElement("div", {
     className: "statusband",
     style: {
       marginTop: 8
@@ -1957,7 +2011,7 @@ function Detail({
     style: {
       marginTop: 8
     }
-  }, money(b.due, st.currency), " ", s.paidAt ? "paid" : "due"), /*#__PURE__*/React.createElement("small", null, s.rateType === "hourly" ? money(s.rate, st.currency) + "/hr × " + hoursLabel(b.scheduled) : "Flat fee " + money(b.base, st.currency), b.otHours > 0 ? " · +" + hoursLabel(b.otHours) + " OT" : "", s.paidAt ? " · " + s.paidMethod + " " + fmtStamp(s.paidAt) : "", b.expTotal > 0 || b.crewCost > 0 ? " · " + money(b.profit, st.currency) + " profit" : ""))), askPay && /*#__PURE__*/React.createElement("div", {
+  }, money(b.due, st.currency), " ", s.paidAt ? "paid" : "due"), /*#__PURE__*/React.createElement("small", null, s.rateType === "hourly" ? money(s.rate, st.currency) + "/hr × " + hoursLabel(b.baseHours) : "Flat fee " + money(b.base, st.currency), b.otHours > 0 ? " · +" + hoursLabel(b.otHours) + " OT" : "", s.paidAt ? " · " + s.paidMethod + " " + fmtStamp(s.paidAt) : "", b.expTotal > 0 || b.crewCost > 0 ? " · " + money(b.profit, st.currency) + " profit" : ""))), askPay && /*#__PURE__*/React.createElement("div", {
     className: "statusband",
     style: {
       borderColor: "rgba(110,155,196,.5)"
@@ -1999,7 +2053,7 @@ function Detail({
     style: {
       color: "var(--live)"
     }
-  }, "Overtime — ", hoursLabel(b.otHours)), /*#__PURE__*/React.createElement("div", {
+  }, "Overtime \u2014 ", hoursLabel(b.otHours)), /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 13.5,
       color: "var(--cream-dim)",
@@ -2040,13 +2094,13 @@ function Detail({
     className: "acts"
   }, /*#__PURE__*/React.createElement("button", {
     onClick: addToCalendar
-  }, "📅 Calendar"), /*#__PURE__*/React.createElement("button", {
+  }, "\uD83D\uDCC5 Calendar"), /*#__PURE__*/React.createElement("button", {
     disabled: !(s.address || s.locationName),
     onClick: () => {
       const a = [s.locationName, s.address].filter(Boolean).join(", ");
       if (a) window.open(mapsHref(a), "_blank");
     }
-  }, "📍 Directions"), /*#__PURE__*/React.createElement("button", {
+  }, "\uD83D\uDCCD Directions"), /*#__PURE__*/React.createElement("button", {
     disabled: !contactHref(s.contact),
     onClick: () => {
       const h = contactHref(s.contact);
@@ -2068,7 +2122,7 @@ function Detail({
     className: "dl"
   }, /*#__PURE__*/React.createElement("dt", null, "Scheduled"), /*#__PURE__*/React.createElement("dd", {
     className: "mono"
-  }, fmtHM(s.startTime), " – ", fmtHM(s.endTime), /*#__PURE__*/React.createElement("small", null, hoursLabel(b.scheduled), " booked"))), s.contact && /*#__PURE__*/React.createElement("div", {
+  }, fmtHM(s.startTime), " \u2013 ", fmtHM(s.endTime), /*#__PURE__*/React.createElement("small", null, hoursLabel(b.scheduled), " booked"))), s.contact && /*#__PURE__*/React.createElement("div", {
     className: "dl"
   }, /*#__PURE__*/React.createElement("dt", null, "Contact"), /*#__PURE__*/React.createElement("dd", null, s.contact)), s.notes && /*#__PURE__*/React.createElement("div", {
     className: "dl"
@@ -2115,7 +2169,7 @@ function Detail({
       marginTop: 9
     },
     onClick: () => onInvoice(unbilled)
-  }, "One invoice for all ", unbilled.length, " ", multiDay ? "days" : "blocks", " · ", money(billAll(unbilled, st).due, st.currency)), /*#__PURE__*/React.createElement(Sect, null, "Shot list"), shots.map(x => /*#__PURE__*/React.createElement("div", {
+  }, "One invoice for all ", unbilled.length, " ", multiDay ? "days" : "blocks", " \xB7 ", money(billAll(unbilled, st).due, st.currency)), /*#__PURE__*/React.createElement(Sect, null, "Shot list"), shots.map(x => /*#__PURE__*/React.createElement("div", {
     key: x.id,
     className: "shotrow" + (x.done ? " on" : ""),
     onClick: () => onPatch({
@@ -2141,7 +2195,7 @@ function Detail({
         shots: shots.filter(y => y.id !== x.id)
       });
     }
-  }, "✕"))), /*#__PURE__*/React.createElement("div", {
+  }, "\u2715"))), /*#__PURE__*/React.createElement("div", {
     className: "methods",
     style: {
       margin: "10px 0"
@@ -2194,7 +2248,7 @@ function Detail({
     onClick: () => onPatch({
       crew: crew.filter(x => x.id !== c.id)
     })
-  }, "✕"))), /*#__PURE__*/React.createElement("div", {
+  }, "\u2715"))), /*#__PURE__*/React.createElement("div", {
     className: "methods",
     style: {
       margin: "10px 0"
@@ -2275,7 +2329,7 @@ function Detail({
     style: {
       color: "var(--live)"
     }
-  }, "Overtime · ", hoursLabel(b.otHours), " @ ", money(b.otRate, st.currency), "/hr"), /*#__PURE__*/React.createElement("div", {
+  }, "Overtime \xB7 ", hoursLabel(b.otHours), " @ ", money(b.otRate, st.currency), "/hr"), /*#__PURE__*/React.createElement("div", {
     className: "t-v mono"
   }, s.otBy ? "Confirmed by " + s.otBy + " · " + fmtStamp(s.otAt) : "Not yet confirmed"))), /*#__PURE__*/React.createElement("li", {
     className: s.invoiceNo ? "done" : ""
@@ -2324,20 +2378,56 @@ function Detail({
     onChange: e => setWrap(e.target.value)
   }))), /*#__PURE__*/React.createElement("div", {
     className: "hint"
-  }, "Tapped Wrap late? Fix the real time here and overtime recalculates — currently", b.otHours > 0 ? " " + hoursLabel(b.otHours) + " OT at " + money(b.otRate, st.currency) + "/hr." : " no overtime.")), b.otHours > 0 && !askOT && /*#__PURE__*/React.createElement("button", {
+  }, "Tapped Wrap late? Fix the real time here and overtime recalculates \u2014 currently", b.otHours > 0 ? " " + hoursLabel(b.otHours) + " OT at " + money(b.otRate, st.currency) + "/hr." : " no overtime.")), b.otHours > 0 && !askOT && /*#__PURE__*/React.createElement("button", {
     className: "btn sm ghost",
     style: {
       width: "100%",
       marginTop: 6
     },
     onClick: () => setAskOT(true)
-  }, s.otBy ? "Edit overtime approval" : "Log who confirmed overtime")), tab === "money" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("dl", {
+  }, s.otBy ? "Edit overtime approval" : "Log who confirmed overtime")), tab === "money" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    className: "row2"
+  }, /*#__PURE__*/React.createElement("label", {
+    className: "f"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "lb"
+  }, "Hours worked"), /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    inputMode: "decimal",
+    step: "0.25",
+    value: s.hoursWorked,
+    onChange: e => onPatch({
+      hoursWorked: e.target.value
+    }),
+    placeholder: hoursLabel(b.worked).replace(" hr", "")
+  })), /*#__PURE__*/React.createElement("label", {
+    className: "f"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "lb"
+  }, "Booked"), /*#__PURE__*/React.createElement("input", {
+    value: hoursLabel(b.scheduled),
+    readOnly: true,
+    style: {
+      opacity: .55
+    }
+  }))), /*#__PURE__*/React.createElement("div", {
+    className: "hint"
+  }, b.manual ? "Billing " + hoursLabel(b.worked) + (b.otHours > 0 ? " — " + hoursLabel(b.baseHours) + " at rate plus " + hoursLabel(b.otHours) + " overtime." : ".") : "Blank uses " + hoursLabel(b.worked) + (s.wrapTime ? " from your wrap time." : " from the booked window."), b.manual && /*#__PURE__*/React.createElement(React.Fragment, null, " ", /*#__PURE__*/React.createElement("button", {
+    className: "pill sm",
+    style: {
+      marginLeft: 6,
+      padding: "4px 10px"
+    },
+    onClick: () => onPatch({
+      hoursWorked: ""
+    })
+  }, "Use auto"))), /*#__PURE__*/React.createElement("dl", {
     style: {
       margin: "0 0 6px"
     }
   }, /*#__PURE__*/React.createElement("div", {
     className: "dl"
-  }, /*#__PURE__*/React.createElement("dt", null, "Rate"), /*#__PURE__*/React.createElement("dd", null, s.rateType === "hourly" ? money(s.rate, st.currency) + " / hr" : money(b.base, st.currency) + " flat", /*#__PURE__*/React.createElement("small", null, hoursLabel(b.scheduled), " booked"))), b.otHours > 0 && /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("dt", null, "Rate"), /*#__PURE__*/React.createElement("dd", null, s.rateType === "hourly" ? money(s.rate, st.currency) + " / hr" : money(b.base, st.currency) + " flat", /*#__PURE__*/React.createElement("small", null, s.rateType === "hourly" ? hoursLabel(b.baseHours) + " billed" : hoursLabel(b.scheduled) + " booked"))), b.otHours > 0 && /*#__PURE__*/React.createElement("div", {
     className: "dl"
   }, /*#__PURE__*/React.createElement("dt", null, "Overtime"), /*#__PURE__*/React.createElement("dd", null, money(b.ot, st.currency), /*#__PURE__*/React.createElement("small", null, hoursLabel(b.otHours), " @ ", money(b.otRate, st.currency), "/hr"))), b.expBillable > 0 && /*#__PURE__*/React.createElement("div", {
     className: "dl"
@@ -2345,7 +2435,7 @@ function Detail({
     className: "dl"
   }, /*#__PURE__*/React.createElement("dt", null, st.taxLabel), /*#__PURE__*/React.createElement("dd", null, money(b.tax, st.currency))), b.deposit > 0 && /*#__PURE__*/React.createElement("div", {
     className: "dl"
-  }, /*#__PURE__*/React.createElement("dt", null, "Deposit"), /*#__PURE__*/React.createElement("dd", null, "−", money(b.deposit, st.currency))), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("dt", null, "Deposit"), /*#__PURE__*/React.createElement("dd", null, "\u2212", money(b.deposit, st.currency))), /*#__PURE__*/React.createElement("div", {
     className: "dl"
   }, /*#__PURE__*/React.createElement("dt", null, s.paidAt ? "Paid" : "Due"), /*#__PURE__*/React.createElement("dd", {
     style: {
@@ -2371,7 +2461,7 @@ function Detail({
     onClick: () => onPatch({
       expenses: expenses.filter(x => x.id !== e.id)
     })
-  }, "✕"))), /*#__PURE__*/React.createElement("div", {
+  }, "\u2715"))), /*#__PURE__*/React.createElement("div", {
     className: "methods",
     style: {
       marginBottom: 10
@@ -2509,7 +2599,7 @@ function Invoice({
     lines.push({
       desc: [s.project, s.dayName].filter(Boolean).join(" — ") || (s.rateType === "hourly" ? "Photo / video coverage" : "Photo / video coverage — flat rate"),
       sub: fmtDateLong(s.date) + " · " + fmtHM(s.startTime) + "–" + fmtHM(s.endTime) + (s.locationName ? " · " + s.locationName : ""),
-      qty: s.rateType === "hourly" ? hoursLabel(sb.scheduled) : "1",
+      qty: s.rateType === "hourly" ? hoursLabel(sb.baseHours) : "1",
       rate: s.rateType === "hourly" ? money(s.rate, st.currency) : money(sb.base, st.currency),
       amt: sb.base
     });
@@ -2579,13 +2669,13 @@ function Invoice({
     className: "iconbtn",
     onClick: onClose,
     "aria-label": "Back"
-  }, "←"), /*#__PURE__*/React.createElement("span", {
+  }, "\u2190"), /*#__PURE__*/React.createElement("span", {
     className: "eyebrow"
   }, "Invoice ", no, list.length > 1 ? " · " + list.length + (invDates.length > 1 ? " days" : " sessions") : ""), /*#__PURE__*/React.createElement("button", {
     className: "iconbtn",
     onClick: share,
     "aria-label": "Share"
-  }, "↗")), /*#__PURE__*/React.createElement("div", {
+  }, "\u2197")), /*#__PURE__*/React.createElement("div", {
     className: "inv-scroll"
   }, /*#__PURE__*/React.createElement("div", {
     className: "paper"
@@ -2668,7 +2758,7 @@ function Invoice({
     className: "tr"
   }, /*#__PURE__*/React.createElement("span", null, "Deposit paid"), /*#__PURE__*/React.createElement("span", {
     className: "mono"
-  }, "−", money(b.deposit, st.currency))), /*#__PURE__*/React.createElement("div", {
+  }, "\u2212", money(b.deposit, st.currency))), /*#__PURE__*/React.createElement("div", {
     className: "tr grand"
   }, /*#__PURE__*/React.createElement("span", null, paid ? "Paid in full" : b.deposit > 0 ? "Balance due" : "Total due"), /*#__PURE__*/React.createElement("span", {
     className: "mono"
@@ -2890,7 +2980,7 @@ function Settings({
     className: "dayrow"
   }, /*#__PURE__*/React.createElement("div", {
     className: "m"
-  }, /*#__PURE__*/React.createElement("b", null, c.name), /*#__PURE__*/React.createElement("span", null, "Client · ", c.locationName || "no venue", c.rate ? " · " + money(c.rate, f.currency) : "")), /*#__PURE__*/React.createElement("button", {
+  }, /*#__PURE__*/React.createElement("b", null, c.name), /*#__PURE__*/React.createElement("span", null, "Client \xB7 ", c.locationName || "no venue", c.rate ? " · " + money(c.rate, f.currency) : "")), /*#__PURE__*/React.createElement("button", {
     className: "iconbtn",
     style: {
       width: 32,
@@ -2898,12 +2988,12 @@ function Settings({
       fontSize: 13
     },
     onClick: () => set("clients", f.clients.filter(x => x.id !== c.id))
-  }, "✕"))), f.packages.map(pk => /*#__PURE__*/React.createElement("div", {
+  }, "\u2715"))), f.packages.map(pk => /*#__PURE__*/React.createElement("div", {
     key: pk.id,
     className: "dayrow"
   }, /*#__PURE__*/React.createElement("div", {
     className: "m"
-  }, /*#__PURE__*/React.createElement("b", null, pk.name), /*#__PURE__*/React.createElement("span", null, "Package · ", pk.hours ? hoursLabel(pk.hours) + " · " : "", money(pk.rate, f.currency), pk.rateType === "hourly" ? "/hr" : "")), /*#__PURE__*/React.createElement("button", {
+  }, /*#__PURE__*/React.createElement("b", null, pk.name), /*#__PURE__*/React.createElement("span", null, "Package \xB7 ", pk.hours ? hoursLabel(pk.hours) + " · " : "", money(pk.rate, f.currency), pk.rateType === "hourly" ? "/hr" : "")), /*#__PURE__*/React.createElement("button", {
     className: "iconbtn",
     style: {
       width: 32,
@@ -2911,7 +3001,7 @@ function Settings({
       fontSize: 13
     },
     onClick: () => set("packages", f.packages.filter(x => x.id !== pk.id))
-  }, "✕"))), /*#__PURE__*/React.createElement(Sect, null, "Backup"), /*#__PURE__*/React.createElement("div", {
+  }, "\u2715"))), /*#__PURE__*/React.createElement(Sect, null, "Backup"), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 9
@@ -2934,7 +3024,7 @@ function Settings({
     style: {
       marginTop: 10
     }
-  }, shoots.length, " shoot", shoots.length === 1 ? "" : "s", " saved · last backup ", f.lastBackupAt ? fmtStamp(f.lastBackupAt) : "never", "."), /*#__PURE__*/React.createElement("div", {
+  }, shoots.length, " shoot", shoots.length === 1 ? "" : "s", " saved \xB7 last backup ", f.lastBackupAt ? fmtStamp(f.lastBackupAt) : "never", "."), /*#__PURE__*/React.createElement("div", {
     style: {
       height: 6
     }
